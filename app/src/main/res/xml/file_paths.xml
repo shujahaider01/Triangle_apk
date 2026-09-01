@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Declares which app-private directories FileProvider is allowed to expose
+  as content:// URIs. Only the "exports" subfolder of the app's cache dir is
+  exposed — see MainActivity.exportDataToFile(), which writes the exported
+  JSON there right before sharing it.
+
+  Place this file at: app/src/main/res/xml/file_paths.xml
+  (referenced by AndroidManifest.xml's <provider> as @xml/file_paths)
+-->
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <cache-path name="exports" path="exports/" />
+</paths>

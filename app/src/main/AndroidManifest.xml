@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <application
+        android:hardwareAccelerated="true"
+        android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.TraineeXP"
+        android:enableOnBackInvokedCallback="true">
+        <!-- Opts the whole app into Android's Predictive Back system — this
+             is what makes the edge-swipe gesture (and the button) route
+             through MainActivity's OnBackPressedCallback consistently
+             (registerBackHandling()), on gesture-nav devices including
+             Xiaomi MIUI/HyperOS. Without this flag, gesture navigation can
+             behave inconsistently with the legacy back-button-only path. -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Phase 2 — receives every FCM push and builds the system
+             notification (see TxpMessagingService.kt for why this has to
+             happen in code rather than relying on FCM's automatic display). -->
+        <service
+            android:name=".TxpMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+        <!-- Phase 1 — FCM push notifications: default channel/icon/color used
+             whenever a push arrives without an explicit channel/icon set
+             (the actual NotificationChannel object gets created in Phase 2's
+             Kotlin code — this just points Firebase's default handling at it). -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@mipmap/ic_launcher" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_color"
+            android:resource="@color/notification_color" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="@string/default_notification_channel_id" />
+
+        <!-- Lets MainActivity.exportDataToFile() hand the exported JSON file
+             to other apps (Share sheet) via a content:// URI instead of a
+             raw file:// path, which is blocked by StrictMode/FileUriExposed
+             on modern Android. Backs "Export Data" in Settings >
+             Backup & Restore. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+    </application>
+
+</manifest>

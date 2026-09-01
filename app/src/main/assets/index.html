@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#1a1d23">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="TraineeXP">
+<title>TraineeXP Portal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@400;500;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="style.css">
+<script src="https://unpkg.com/lucide@0.344.0/dist/umd/lucide.min.js"></script>
+</head>
+<body>
+
+<!-- LOADING OVERLAY -->
+<div id="loadingOverlay">
+  <div class="load-logo">⚡ TraineeXP</div>
+  <div class="spinner"></div>
+  <div class="load-msg" id="loadMsg">Connecting to server...</div>
+</div>
+
+<!-- AUTH / ONBOARDING (Sign Up + Login + Google sign-in + org onboarding —
+     see script.js "AUTH & ORGANIZATION ONBOARDING" section). This is the
+     app's only sign-in surface; the old separate classic username/password
+     screen has been merged into this flow's Login screen
+     (_authRenderLogin(), step 'login'). -->
+<div class="screen" id="authScreen">
+  <!-- Fixed header (wordmark + Login/Sign Up tabs) — rendered/kept in sync
+       by _authRenderHeader() in script.js, separate from #authContent so it
+       never re-mounts/animates when the step below it changes. -->
+  <div class="auth-header" id="authHeader"></div>
+  <div class="auth-body">
+    <div class="auth-viewport" id="authContent"></div>
+  </div>
+  <!-- Fixed footer wordmark for the wizard/onboarding steps (role select,
+       org creation, trainee org search, etc.) — the hero steps (Sign
+       Up/Login) don't use this; see _authRenderFooter() in script.js. -->
+  <div class="auth-footer" id="authFooter"></div>
+</div>
+
+<!-- MAIN APP -->
+<div class="screen" id="mainScreen">
+  <div class="sidebar-overlay" id="sidebarOverlay" onclick="closeMobileSidebar()"></div>
+  <!-- Task page side drawer overlay -->
+  <div class="tsd-overlay" id="tsdOverlay" onclick="closeTsd()"></div>
+  <!-- Task side drawer -->
+  <div class="tsd" id="tsd">
+    <div class="tsd-header">
+      <i data-lucide="user" style="width:16px;height:16px;color:var(--accent);"></i>
+      <span id="tsdName" style="font-weight:700;font-size:14px;color:var(--text);">—</span>
+      <span style="margin-left:auto;font-size:11px;color:var(--text3);" id="tsdDate"></span>
+    </div>
+    <div class="tsd-section">
+      <div class="tsd-item" onclick="closeTsd();toggleDarkMode()">
+        <i data-lucide="moon" style="width:17px;height:17px;"></i>
+        <span>Dark Mode</span>
+        <span id="tsdDarkLabel" style="margin-left:auto;font-size:11px;color:var(--text3);"></span>
+      </div>
+      <div class="tsd-item" onclick="closeTsd();handleNotifClick()">
+        <i data-lucide="bell" style="width:17px;height:17px;"></i>
+        <span>Notifications</span>
+      </div>
+      <div class="tsd-item" onclick="closeTsd();openProfilePopup()">
+        <i data-lucide="user-circle" style="width:17px;height:17px;"></i>
+        <span>Profile</span>
+      </div>
+    </div>
+    <div class="tsd-divider"></div>
+    <div class="tsd-section">
+      <div class="tsd-item" onclick="closeTsd();navigateTo(currentRole==='admin'?'adminSettings':'internDashboard')">
+        <i data-lucide="settings" style="width:17px;height:17px;"></i>
+        <span>Settings</span>
+        <i data-lucide="chevron-right" style="width:14px;height:14px;margin-left:auto;color:var(--text3);"></i>
+      </div>
+    </div>
+    <div class="tsd-divider"></div>
+    <button class="tsd-logout" onclick="closeTsd();doLogout()">
+      <i data-lucide="log-out" style="width:16px;height:16px;"></i>
+      Logout
+    </button>
+  </div>
+  <div class="topbar" id="mainTopbar">
+    <!-- Default topbar (all pages except task on mobile) -->
+    <div class="topbar-default" id="topbarDefault" style="display:flex;align-items:center;justify-content:space-between;width:100%;">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <button class="hamburger" id="hamburgerBtn" onclick="toggleMobileSidebar()" aria-label="Menu"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
+        <div class="topbar-logo" onclick="if(currentUser)navigateTo(currentRole==='admin'?'adminDashboard':'internDashboard')" style="cursor:pointer;" title="Go to Dashboard">
+          <span class="topbar-logo-wordmark">Trainee<span class="topbar-logo-xp">XP</span></span>
+        </div>
+      </div>
+      <div class="topbar-right">
+        <span class="sync-status" id="syncStatus"></span>
+
+        <button class="dm-envelope-btn" id="dmEnvelopeBtn" onclick="navigateTo('dmInbox')" title="Messages" style="display:none;">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><path d="m22 6-10 7L2 6"/></svg>
+          <span class="dm-envelope-badge" id="dmEnvelopeBadge" style="display:none;"></span>
+        </button>
+
+        <div class="user-chip" onclick="openProfileInfoPopup();" style="cursor:pointer;position:relative;" title="View Profile">
+          <div class="user-avatar-wrapper">
+            <div class="user-avatar" id="topAvatar" style="position:relative;">
+              <span class="mob-avatar-dot" id="mobAvatarDot"></span>
+            </div>
+          </div>
+          <div class="topbar-user-info">
+            <div class="topbar-firstname" id="topFirstName">-</div>
+            <div class="user-role" id="topRole">-</div>
+          </div>
+        </div>
+        <button class="theme-toggle desktop-only" id="themeToggle" onclick="toggleDarkMode()" title="Toggle dark mode" aria-label="Toggle dark mode" style="display:none!important;">
+        <button class="logout-btn desktop-only" onclick="doLogout()" title="Logout">
+          <i data-lucide="log-out"></i>
+        </button>
+      </div>
+    </div>
+    <!-- Task page topbar (mobile only, shown when data-page=internTasks) -->
+    <div class="topbar-tasks" id="topbarTasks" style="display:none;align-items:center;width:100%;">
+      <button class="it-topbar-btn" onclick="openCreateCustomTask()" title="New Task" style="margin-right:8px;">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      </button>
+      <span style="font-size:17px;font-weight:700;color:var(--text);flex:1;">Tasks</span>
+      <button class="it-topbar-btn" id="topTaskSearchBtn" onclick="toggleTaskSearch()" title="Search">
+        <i data-lucide="search" style="width:18px;height:18px;"></i>
+      </button>
+      <div class="it-topbar-filter-wrap" style="margin-left:6px;">
+        <button class="it-topbar-btn" id="topTaskFilterBtn" onclick="toggleTaskFilter()" title="Filter">
+          <i data-lucide="filter" style="width:18px;height:18px;"></i>
+        </button>
+        <div class="it-filter-dropdown" id="itFilterDropdown" style="display:none;"></div>
+      </div>
+    </div>
+    <div class="topbar-tasks" id="topbarComplaints" style="display:none;align-items:center;width:100%;">
+      <button class="it-topbar-btn" onclick="openComplaintModal()" title="New Complaint" style="margin-right:8px;">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      </button>
+      <span style="font-size:17px;font-weight:700;color:var(--text);flex:1;">Complaints</span>
+      <div class="it-topbar-filter-wrap">
+        <button class="it-topbar-btn" onclick="toggleComplaintFilter()" title="Filter">
+          <i data-lucide="filter" style="width:18px;height:18px;"></i>
+        </button>
+        <div class="it-filter-dropdown" id="icFilterDropdown" style="display:none;"></div>
+      </div>
+    </div>
+  </div>
+  <div class="main-content">
+    <div class="sidebar" id="sidebar"></div>
+    <div class="content-area" id="contentArea"></div>
+  </div>
+
+  <!-- MOBILE FAB — Intern (inside mainScreen so hidden on login) -->
+  <button class="mob-fab" id="mobFab" onclick="openFabSheet()" aria-label="Quick Actions">
+    <span class="fab-icon-wrap"><i data-lucide="plus" style="width:24px;height:24px;color:#fff;"></i></span>
+  </button>
+
+  <!-- MOBILE FAB — Admin -->
+  <button class="mob-fab admin-fab" id="adminMobFab" style="display:none;" onclick="openAdminFabSheet()" aria-label="Admin Actions">
+    <span class="fab-icon-wrap"><i data-lucide="plus" style="width:24px;height:24px;color:#fff;"></i></span>
+  </button>
+
+  <!-- ══ DUOLINGO-STYLE BOTTOM NAV — INTERN ══ -->
+  <nav class="duo-nav" id="mobBottomNav">
+    <!-- Home -->
+    <button class="duo-nav-btn" id="mbn-dashboard" onclick="navigateTo('internDashboard')">
+      <span class="duo-nav-pill">
+        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        <span class="duo-nav-label">Home</span>
+      </span>
+    </button>
+    <!-- Tasks -->
+    <button class="duo-nav-btn" id="mbn-tasks" onclick="navigateTo('internTasks')">
+      <span class="duo-nav-pill">
+        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        <span class="duo-nav-label">Tasks</span>
+      </span>
+    </button>
+    <!-- FAB placeholder -->
+    <div class="duo-nav-fab-placeholder"></div>
+    <!-- Feed -->
+    <button class="duo-nav-btn" id="mbn-feed" onclick="navigateTo('internFeed')">
+      <span class="duo-nav-pill" style="position:relative;">
+        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        <span class="duo-nav-label">Feed</span>
+        <span class="duo-badge" id="mbn-feed-badge"></span>
+      </span>
+    </button>
+    <!-- Profile -->
+    <button class="duo-nav-btn" id="mbn-profile" onclick="navigateTo('internProfile')">
+      <span class="duo-nav-pill">
+        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+        <span class="duo-nav-label">Profile</span>
+      </span>
+    </button>
+  </nav>
+
+  <!-- ══ DUOLINGO-STYLE BOTTOM NAV — ADMIN ══ -->
+  <nav class="duo-nav" id="mobAdminBottomNav" style="display:none;">
+    <!-- Home -->
+    <button class="duo-nav-btn" id="ambn-dashboard" onclick="navigateTo('adminDashboard')">
+      <span class="duo-nav-pill">
+        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        <span class="duo-nav-label">Home</span>
+      </span>
+    </button>
+    <!-- Tasks -->
+    <button class="duo-nav-btn" id="ambn-tasks" onclick="navigateTo('adminTasks')">
+      <span class="duo-nav-pill">
+        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        <span class="duo-nav-label">Tasks</span>
+      </span>
+    </button>
+    <!-- FAB placeholder -->
+    <div class="duo-nav-fab-placeholder"></div>
+    <!-- Feed -->
+    <button class="duo-nav-btn" id="ambn-feed" onclick="navigateTo('adminFeed')">
+      <span class="duo-nav-pill" style="position:relative;">
+        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        <span class="duo-nav-label">Feed</span>
+        <span class="duo-badge" id="ambn-feed-badge"></span>
+      </span>
+    </button>
+    <!-- Trainees -->
+    <button class="duo-nav-btn" id="ambn-trainees" onclick="navigateTo('adminTrainees')">
+      <span class="duo-nav-pill">
+        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        <span class="duo-nav-label">Profiles</span>
+      </span>
+    </button>
+  </nav>
+</div><!-- /mainScreen -->
+
+<!-- TOAST -->
+<div class="toast" id="toast"><span id="toastIcon">✓</span><span id="toastMsg">Done!</span></div>
+
+<!-- MODAL -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal"><button class="modal-close" onclick="closeModal()">✕</button><div id="modalBody"></div></div>
+</div>
+
+<!-- LONG PRESS CONTEXT MENU -->
+<div class="ctx-menu" id="ctxMenu">
+  <div id="ctxMenuBody"></div>
+</div>
+
+<script src="config.js"></script>
+<script src="script.js"></script>
+</body>
+</html>
