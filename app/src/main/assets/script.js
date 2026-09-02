@@ -4039,16 +4039,20 @@ function _authRenderTraineeWelcome() {
       <button class="auth-btn auth-btn--green" onclick="_authGoToHomeFromWelcome()">Go to Home</button>
     </div>`;
 }
-// The one-time welcome screen leads into the REAL dashboard when it's for
-// TXP_ORG_ID (the one org with real backing data today); for any other
-// org (still mock-only) it falls back to the old preview toast.
+// Every org has real backing data now (see _authGoToRealDashboard()'s
+// comment above, which generalized the admin creation path the same way)
+// — this used to only work for TXP_ORG_ID and fell back to a placeholder
+// toast for any other organization. Just hand this trainee's real
+// identity and their actual org id to _authEnterRealApp(); nothing else
+// to build, _txpBasePath() already scopes every read/write to whatever
+// window.currentOrgId is set to.
 function _authGoToHomeFromWelcome() {
   const f = window._authFlow;
   const org = f.pendingOrg;
-  if (org && org.orgId === TXP_ORG_ID && f.uid) {
-    _authEnterRealApp({ id: f.uid, name: f.googleName || '', username: f.googleEmail || f.uid }, TXP_ORG_ID);
+  if (org && org.orgId && f.uid) {
+    _authEnterRealApp({ id: f.uid, name: f.googleName || '', username: f.googleEmail || f.uid }, org.orgId);
   } else {
-    showToast('Real Home routing lands once this organization has real backing data');
+    showToast('Could not open your dashboard — missing account info. Please sign in again.', 'error');
   }
 }
 
@@ -4318,9 +4322,12 @@ async function _authFirebaseAuthRequest(endpoint, body) {
 async function _authRouteAfterIdentity(uid, displayName, displayEmail) {
   let existing = null;
   try { existing = await fbRootGet('users/' + uid); } catch (e) { /* best-effort — fall through to role select on lookup failure */ }
-  if (existing && existing.role === 'admin' && existing.orgId === TXP_ORG_ID) {
-    // Recognized returning admin of the one real, already-migrated
-    // organization — straight into the real dashboard, not the preview.
+  if (existing && existing.role === 'admin' && existing.orgId) {
+    // Recognized returning admin of ANY real organization — every org has
+    // real backing data now (see _authGoToRealDashboard()'s comment),
+    // straight into the real dashboard, not a detour screen. Used to only
+    // do this for TXP_ORG_ID and send every other org's admin through the
+    // "You're All Set!" screen again on every single login.
     window._authFlow.uid = uid; window._authFlow.googleName = displayName; window._authFlow.googleEmail = displayEmail;
     // Same fix as the initial claim in _authPickAdminRole(): log this
     // returning admin in as themselves, not the legacy id:99 fixture.
@@ -4328,38 +4335,24 @@ async function _authRouteAfterIdentity(uid, displayName, displayEmail) {
     // name/email (set at claim time) over whatever this sign-in call
     // reports, falling back to the latter if the record is thin.
     const adminUser = { id: uid, name: existing.name || displayName || 'Admin', username: existing.email || displayEmail || uid, role: 'admin' };
-    await _authEnterRealApp(adminUser);
-  } else if (existing && existing.role === 'admin' && existing.orgId) {
-    let org = null;
-    try { org = await fbRootGet('organizations/' + existing.orgId); } catch (e) {}
-    showAuthScreen('adminSuccess', {
-      uid, googleName: displayName, googleEmail: displayEmail, orgId: existing.orgId,
-      orgName: org ? org.name : '', orgUsername: org ? org.username : '', visibility: org ? org.visibility : 'public'
-    });
-  } else if (existing && existing.role === 'trainee' && existing.orgId === TXP_ORG_ID) {
-    // Admitted member of the one real, already-migrated organization.
-    // First login ever → show the one-time PRD-required welcome screen,
-    // then straight into the real dashboard; every login after that
-    // skips straight to the real dashboard.
+    await _authEnterRealApp(adminUser, existing.orgId);
+  } else if (existing && existing.role === 'trainee' && existing.orgId) {
+    // Admitted member of ANY real organization (was TXP_ORG_ID-only
+    // before). First login ever → show the one-time PRD-required welcome
+    // screen, then straight into the real dashboard; every login after
+    // that skips straight to the real dashboard.
     if (!existing.welcomedAt) {
       let org = null;
-      try { org = await fbRootGet('organizations/' + TXP_ORG_ID); } catch (e) {}
+      try { org = await fbRootGet('organizations/' + existing.orgId); } catch (e) {}
       fbRootPatch('users/' + uid, { welcomedAt: Date.now() }).catch(() => {});
       showAuthScreen('traineeWelcome', {
         uid, googleName: existing.name || displayName, googleEmail: existing.email || displayEmail,
-        pendingOrg: { orgId: TXP_ORG_ID, name: org ? org.name : 'your organization', username: org ? org.username : '' }
+        pendingOrg: { orgId: existing.orgId, name: org ? org.name : 'your organization', username: org ? org.username : '' }
       });
     } else {
       const traineeUser = { id: uid, name: existing.name || displayName, username: existing.email || displayEmail };
-      await _authEnterRealApp(traineeUser, TXP_ORG_ID);
+      await _authEnterRealApp(traineeUser, existing.orgId);
     }
-  } else if (existing && existing.role === 'trainee' && existing.orgId) {
-    let org = null;
-    try { org = await fbRootGet('organizations/' + existing.orgId); } catch (e) {}
-    showAuthScreen('traineeWelcome', {
-      uid, googleName: displayName, googleEmail: displayEmail,
-      pendingOrg: { orgId: existing.orgId, name: org ? org.name : 'your organization', username: org ? org.username : '' }
-    });
   } else {
     showAuthScreen('roleSelect', { uid, googleName: displayName, googleEmail: displayEmail });
   }
