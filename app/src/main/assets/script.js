@@ -1,5 +1,5 @@
 /* ================================================================
-   TraineeXP Portal — JavaScript
+   Triangle Portal — JavaScript
    Firebase backend · Auth · UI rendering · Business logic
 ================================================================ */
 
@@ -27,7 +27,7 @@
         <path d="M58,16 L73,16 L53,54 L76,54 L38,90 L50,54 L31,54 Z" fill="#e85d26"/>
       </svg>
     </div>
-    <div class="splash-wordmark">TraineeXP</div>
+    <div class="splash-wordmark">Triangle</div>
     <div class="splash-tagline">Level Up Your Training</div>
     <div class="splash-dots"><span></span><span></span><span></span></div>
     <div class="load-msg" id="loadMsg">${msgText}</div>`;
@@ -42,7 +42,7 @@
 // in index.html — see per-flavor config.js files for prod vs sandbox).
 // The literal here is only a fallback for the rare case config.js failed
 // to load, so this never silently breaks.
-const FIREBASE_URL = (window.TXP_CONFIG && window.TXP_CONFIG.FIREBASE_URL) || 'https://traineexp-default-rtdb.firebaseio.com';
+const FIREBASE_URL = (window.TXP_CONFIG && window.TXP_CONFIG.FIREBASE_URL) || 'https://triangle-apk-default-rtdb.firebaseio.com';
 
 // ── Multi-org data model (Phase 2) ───────────────────────────────────────
 // The app's live data used to live at a single flat /txp path with no
@@ -3008,7 +3008,7 @@ function _authRenderHeader() {
 function _authRenderFooter(heroMode) {
   const footer = document.getElementById('authFooter');
   if (!footer) return;
-  footer.innerHTML = heroMode ? '' : '<div class="auth-wordmark auth-wordmark--footer">Trainee<span>XP</span></div>';
+  footer.innerHTML = heroMode ? '' : '<div class="auth-wordmark auth-wordmark--footer">Triangle</div>';
   footer.style.display = heroMode ? 'none' : 'flex';
 }
 
@@ -3143,7 +3143,7 @@ const _AUTH_BUILDING_ICON_SVG = `
 function _authRenderWelcome() {
   return `
     <div class="auth-card">
-      <div class="auth-title">Welcome to Trainee<span class="auth-title-accent">XP</span></div>
+      <div class="auth-title">Welcome to <span class="auth-title-accent">Triangle</span></div>
       <div class="auth-sub">Learn. Grow. Achieve.</div>
       <button class="auth-btn" onclick="onGoogleAuthClick()">
         ${_GOOGLE_G_SVG} Continue with Google
@@ -3684,7 +3684,7 @@ function _authRenderAdminUsername() {
       <div class="onb-icon-circle" style="margin-top:14px;"><i data-lucide="at-sign"></i></div>
       <div class="auth-sub" style="margin-bottom:14px;">Create a unique username for your organization.</div>
       <input type="text" class="auth-input" id="authOrgUserInput" placeholder="@aiotrainees" value="${suggested}" oninput="_authValidateOrgUsername()">
-      <div class="auth-hint" id="authOrgUserHint">This will be your organization's unique identity on TraineeXP</div>
+      <div class="auth-hint" id="authOrgUserHint">This will be your organization's unique identity on Triangle</div>
       <button class="auth-btn auth-btn--primary" id="authOrgUserBtn" onclick="_authContinueOrgUsername()">Continue</button>
     </div>`;
 }
@@ -3692,7 +3692,7 @@ function _authRenderAdminUsername() {
 // (matching the existing live org, plus generic reserved words) are
 // rejected without a network round trip; everything else is a genuine
 // Firebase lookup.
-const _RESERVED_USERNAMES = ['@admin', '@traineexp', '@support', '@help'];
+const _RESERVED_USERNAMES = ['@admin', '@triangle', '@support', '@help'];
 let _authUsernameCheckSeq = 0;
 async function _authValidateOrgUsername() {
   const raw = document.getElementById('authOrgUserInput').value;
@@ -3701,7 +3701,7 @@ async function _authValidateOrgUsername() {
   const hint = document.getElementById('authOrgUserHint');
   const btn = document.getElementById('authOrgUserBtn');
   const bare = v.slice(1);
-  if (!bare) { hint.textContent = "This will be your organization's unique identity on TraineeXP"; hint.className = 'auth-hint'; btn.disabled = true; return; }
+  if (!bare) { hint.textContent = "This will be your organization's unique identity on Triangle"; hint.className = 'auth-hint'; btn.disabled = true; return; }
   if (bare.length < 3) { hint.textContent = 'Username must be at least 3 characters'; hint.className = 'auth-hint auth-hint--taken'; btn.disabled = true; return; }
   if (_RESERVED_USERNAMES.includes(v)) { hint.textContent = 'Username already taken'; hint.className = 'auth-hint auth-hint--taken'; btn.disabled = true; return; }
   const mySeq = ++_authUsernameCheckSeq;
@@ -4249,7 +4249,7 @@ async function _authSendEmailCode(email) {
     service_id: EMAILJS_SERVICE_ID,
     template_id: EMAILJS_TEMPLATE_ID,
     user_id: EMAILJS_PUBLIC_KEY,
-    template_params: { to_email: email, code, app_name: 'TraineeXP' }
+    template_params: { to_email: email, code, app_name: 'Triangle' }
   };
   if (EMAILJS_PRIVATE_KEY !== 'FILL_ME_IN') reqBody.accessToken = EMAILJS_PRIVATE_KEY;
   let res;
@@ -4381,7 +4381,7 @@ window.onGoogleAuthResult = async function (success, idToken, name, email, messa
   try {
     const data = await _authFirebaseAuthRequest('signInWithIdp', {
       postBody: `id_token=${idToken}&providerId=google.com`,
-      requestUri: 'https://traineexp.app/oauth-callback',
+      requestUri: 'https://triangle.app/oauth-callback',
       returnIdpCredential: true,
       returnSecureToken: true
     });
@@ -4659,7 +4659,7 @@ function renderSidebar() {
   document.getElementById('sidebar').innerHTML =
     `<div class="sidebar-branding">
       <div class="sidebar-logo-text">
-        <span class="sidebar-logo-trainee">Trainee</span><span class="sidebar-logo-xp">XP</span>
+        <span class="sidebar-logo-trainee">Triangle</span>
       </div>
     </div>
     
@@ -13182,11 +13182,11 @@ function renderInternRewards(ca) {
 
   // Default branded SVGs per category
   const SVG = {
-    physical:   `<svg viewBox="0 0 320 180" xmlns="http://www.w3.org/2000/svg"><rect width="320" height="180" fill="#1e3a8a"/><rect width="320" height="180" fill="url(#pg)" opacity=".8"/><defs><linearGradient id="pg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#1d4ed8"/><stop offset="100%" stop-color="#1e3a8a"/></linearGradient></defs><text x="160" y="115" text-anchor="middle" font-size="52" fill="rgba(255,255,255,.9)">📦</text><text x="160" y="158" text-anchor="middle" font-size="12" fill="rgba(255,255,255,.5)" font-family="Arial">TraineeXP</text></svg>`,
-    digital:    `<svg viewBox="0 0 320 180" xmlns="http://www.w3.org/2000/svg"><rect width="320" height="180" fill="#4c1d95"/><text x="160" y="115" text-anchor="middle" font-size="52" fill="rgba(255,255,255,.9)">💻</text><text x="160" y="158" text-anchor="middle" font-size="12" fill="rgba(255,255,255,.5)" font-family="Arial">TraineeXP</text></svg>`,
-    giftcard:   `<svg viewBox="0 0 320 180" xmlns="http://www.w3.org/2000/svg"><rect width="320" height="180" fill="#064e3b"/><text x="160" y="115" text-anchor="middle" font-size="52" fill="rgba(255,255,255,.9)">🎁</text><text x="160" y="158" text-anchor="middle" font-size="12" fill="rgba(255,255,255,.5)" font-family="Arial">TraineeXP</text></svg>`,
-    perk:       `<svg viewBox="0 0 320 180" xmlns="http://www.w3.org/2000/svg"><rect width="320" height="180" fill="#78350f"/><text x="160" y="115" text-anchor="middle" font-size="52" fill="rgba(255,255,255,.9)">⚡</text><text x="160" y="158" text-anchor="middle" font-size="12" fill="rgba(255,255,255,.5)" font-family="Arial">TraineeXP</text></svg>`,
-    experience: `<svg viewBox="0 0 320 180" xmlns="http://www.w3.org/2000/svg"><rect width="320" height="180" fill="#7c2d12"/><text x="160" y="115" text-anchor="middle" font-size="52" fill="rgba(255,255,255,.9)">🌟</text><text x="160" y="158" text-anchor="middle" font-size="12" fill="rgba(255,255,255,.5)" font-family="Arial">TraineeXP</text></svg>`,
+    physical:   `<svg viewBox="0 0 320 180" xmlns="http://www.w3.org/2000/svg"><rect width="320" height="180" fill="#1e3a8a"/><rect width="320" height="180" fill="url(#pg)" opacity=".8"/><defs><linearGradient id="pg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#1d4ed8"/><stop offset="100%" stop-color="#1e3a8a"/></linearGradient></defs><text x="160" y="115" text-anchor="middle" font-size="52" fill="rgba(255,255,255,.9)">📦</text><text x="160" y="158" text-anchor="middle" font-size="12" fill="rgba(255,255,255,.5)" font-family="Arial">Triangle</text></svg>`,
+    digital:    `<svg viewBox="0 0 320 180" xmlns="http://www.w3.org/2000/svg"><rect width="320" height="180" fill="#4c1d95"/><text x="160" y="115" text-anchor="middle" font-size="52" fill="rgba(255,255,255,.9)">💻</text><text x="160" y="158" text-anchor="middle" font-size="12" fill="rgba(255,255,255,.5)" font-family="Arial">Triangle</text></svg>`,
+    giftcard:   `<svg viewBox="0 0 320 180" xmlns="http://www.w3.org/2000/svg"><rect width="320" height="180" fill="#064e3b"/><text x="160" y="115" text-anchor="middle" font-size="52" fill="rgba(255,255,255,.9)">🎁</text><text x="160" y="158" text-anchor="middle" font-size="12" fill="rgba(255,255,255,.5)" font-family="Arial">Triangle</text></svg>`,
+    perk:       `<svg viewBox="0 0 320 180" xmlns="http://www.w3.org/2000/svg"><rect width="320" height="180" fill="#78350f"/><text x="160" y="115" text-anchor="middle" font-size="52" fill="rgba(255,255,255,.9)">⚡</text><text x="160" y="158" text-anchor="middle" font-size="12" fill="rgba(255,255,255,.5)" font-family="Arial">Triangle</text></svg>`,
+    experience: `<svg viewBox="0 0 320 180" xmlns="http://www.w3.org/2000/svg"><rect width="320" height="180" fill="#7c2d12"/><text x="160" y="115" text-anchor="middle" font-size="52" fill="rgba(255,255,255,.9)">🌟</text><text x="160" y="158" text-anchor="middle" font-size="12" fill="rgba(255,255,255,.5)" font-family="Arial">Triangle</text></svg>`,
   };
 
   // ── WALLET TAB ────────────────────────────────────
@@ -13679,7 +13679,7 @@ function renderAdminDashboard(ca) {
             <button class="adh-hamburger" onclick="toggleMobileSidebar()" aria-label="Menu">
               <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
             </button>
-            <div class="adh-logo"><span class="adh-logo-trainee">Trainee</span><span class="adh-logo-xp">XP</span></div>
+            <div class="adh-logo"><span class="adh-logo-trainee">Triangle</span></div>
             <div class="adh-header-actions">
               <button class="adh-bell-btn" onclick="handleNotifClick()" aria-label="Notifications">
                 <svg xmlns="http://www.w3.org/2000/svg" width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
@@ -18585,7 +18585,7 @@ function exportData() {
   const cell = v => `<Cell><Data ss:Type="String">${esc(v)}</Data></Cell>`;
   const row  = (...cells) => `<Row>${cells.map(cell).join('')}</Row>`;
   const rows = [
-    row('TraineeXP Performance Report',''), row('Name',intern.name), row('Username',intern.username), row(''),
+    row('Triangle Performance Report',''), row('Name',intern.name), row('Username',intern.username), row(''),
     row('Metric','Value'), row('Total Points',s.points||0),
     row('Office Attendance',s.office||0), row('Projects',s.project||0), row('Bugs',s.bugs||0),
     row('Suggestions',s.suggestions||0), row('Obedience %',ob+'%'),
@@ -18597,7 +18597,7 @@ function exportData() {
   const xml = `<?xml version="1.0" encoding="UTF-8"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="Report"><Table>${rows.join('')}</Table></Worksheet></Workbook>`;
   const blob = new Blob([xml], {type:'application/vnd.ms-excel;charset=utf-8'});
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-  a.download = `TraineeXP_${intern.name.replace(/\s+/g,'_')}_${today()}.xls`; a.click();
+  a.download = `Triangle_${intern.name.replace(/\s+/g,'_')}_${today()}.xls`; a.click();
   showToast("Exported " + intern.name + "'s report!", 'success');
 }
 
@@ -18952,7 +18952,7 @@ function onStartCloudBackupClick() {
 // name the export file and (on import) to reject any random .json file
 // that isn't actually one of these exports, instead of silently trying to
 // load it and corrupting the live data.
-const TXP_EXPORT_MARKER = 'traineexp_backup_db';
+const TXP_EXPORT_MARKER = 'triangle_backup_db';
 function _looksLikeTxpExport(obj) {
   return !!obj && typeof obj === 'object' &&
     ('tasks' in obj) && ('habits' in obj) && ('rewards' in obj);
@@ -19026,7 +19026,7 @@ async function _handleImportDataFile(inputEl) {
   }
   if (!_looksLikeTxpExport(parsed)) {
     refreshDriveBackupSection();
-    showToast('Import failed: this file is not a TraineeXP export', 'error');
+    showToast('Import failed: this file is not a Triangle export', 'error');
     return;
   }
   // Confirm now, with real numbers from the file already in hand — also
@@ -20395,7 +20395,7 @@ function renderAdminFeedCreate(ca, editIdx) {
 
     <div style="padding:14px 16px 4px;">
       <div style="font-size:18px;font-weight:800;color:var(--text);font-family:'Outfit',sans-serif;">Admin Feed Creator</div>
-      <div style="font-size:12px;color:var(--text2);margin-top:2px;">Create and customize feed for TraineeXP</div>
+      <div style="font-size:12px;color:var(--text2);margin-top:2px;">Create and customize feed for Triangle</div>
     </div>
 
     <div style="padding:12px 16px 100px;display:flex;flex-direction:column;gap:12px;">

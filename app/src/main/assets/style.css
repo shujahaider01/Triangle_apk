@@ -1,5 +1,5 @@
 /* ================================================================
-   TraineeXP Portal — Stylesheet
+   Triangle Portal — Stylesheet
    All visual styling for the portal
 ================================================================ */
 
@@ -8301,7 +8301,7 @@ hr{border:none;border-top:1px solid var(--border);margin:14px 0;}
 .jira-xp-total { font-size: 18px; font-weight: 700; color: var(--accent); padding: 6px 12px; background: rgba(232, 93, 38, 0.1); border-radius: 8px; }
 
 /* ================================================================
-   TraineeXP — TASK DASHBOARD v2 (Habit-Style) + Add Task Form
+   Triangle — TASK DASHBOARD v2 (Habit-Style) + Add Task Form
    APPENDED STYLES — do not remove anything above this line
 ================================================================ */
 
@@ -8897,7 +8897,7 @@ body[data-page="internTasks"] { --accent: var(--brand); }
 .ct-add-checklist-btn:hover { border-color:var(--accent); color:var(--accent); }
 
 /* ================================================================
-   HABIT FEATURE — TraineeXP
+   HABIT FEATURE — Triangle
    TickOff-inspired visual design
 ================================================================ */
 
@@ -12482,10 +12482,10 @@ body[data-page="internTasks"] { --accent: var(--brand); }
   padding:8px 20px calc(20px + env(safe-area-inset-bottom));
 }
 /* Fixed footer wordmark — every wizard/onboarding step (role select, org
-   creation, trainee org search, etc.) shows the "TraineeXP" wordmark down
+   creation, trainee org search, etc.) shows the "Triangle" wordmark down
    here instead of up in the header (see _authRenderFooter() in
    script.js); hidden entirely on the Sign Up/Login hero steps, which
-   already say "Welcome to TraineeXP" in their own hero copy. */
+   already say "Welcome to Triangle" in their own hero copy. */
 .auth-footer{
   width:100%;flex-shrink:0;display:none;align-items:center;justify-content:center;
   padding:10px 20px calc(10px + env(safe-area-inset-bottom));
@@ -12579,7 +12579,7 @@ body[data-page="internTasks"] { --accent: var(--brand); }
    (deliberately ignores light/dark mode, same as the reference design).
    Toggled by _authRenderHeader() adding/removing .auth-hero-mode on
    #authScreen depending on the current step. */
-/* Gradient anchored on the actual TraineeXP brand purple (#8B5CF6),
+/* Gradient anchored on the actual Triangle brand purple (#8B5CF6),
    darkening toward the bottom edge for depth — previously used an
    unrelated deep-violet palette that didn't match the brand color. */
 #authScreen.auth-hero-mode{background:linear-gradient(160deg, #8B5CF6 0%, #7C3AED 55%, #5B21B6 100%);}
@@ -12788,7 +12788,7 @@ body[data-page="internTasks"] { --accent: var(--brand); }
 .auth-divider::before,.auth-divider::after{content:'';flex:1;height:1px;background:var(--border);}
 
 /* Role selection cards (Admin / Trainee) */
-/* Classic "pick one" list-style chooser, unified to the TraineeXP brand
+/* Classic "pick one" list-style chooser, unified to the Triangle brand
    purple for both options (previously blue-for-admin/green-for-trainee —
    two arbitrary, unrelated colors that didn't match the app's own brand
    color anywhere). A trailing chevron plus a hover lift/shadow give it the
