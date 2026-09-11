@@ -7046,17 +7046,29 @@ function renderAdminAccountSettings(ca) {
 // bridge side works).
 function renderAdminDriveBackup(ca) {
   const backTarget = currentRole === 'admin' ? 'adminAccountSettings' : 'internSettings';
+  // Wrapped in .rws-page — the same fixed, full-viewport, single-scroll-owner
+  // pattern Reward Store/Notifications already use (see .rws-page in
+  // style.css) — instead of relying on the ambient #contentArea/.content-area
+  // scroll like this page used to. That older approach needed a special
+  // [data-page="adminDriveBackup"] .content-area override (see style.css) to
+  // even reach full height, and still left a dead gap below a short card
+  // (or clipped a tall one) because .content-area isn't a flex container —
+  // its children's flex:1 (.drive-backup-card, #driveBackupSection) had
+  // nothing to size against. .rws-page sizes and scrolls itself, so none of
+  // that flex-chain plumbing is needed here any more.
   ca.innerHTML = `
-    <div class="rws-page-header">
-      <button class="rws-back-btn" onclick="navigateTo('${backTarget}')">
-        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-      </button>
-      <span class="rws-page-title">Backup &amp; Restore</span>
-      <div style="width:36px;"></div>
-    </div>
-    <div class="rw-body" style="padding:14px 14px 32px;">
-      <div class="card drive-backup-card" style="margin:0;padding:0;overflow:hidden;flex:1;display:flex;flex-direction:column;">
-        <div id="driveBackupSection" style="flex:1;display:flex;flex-direction:column;">${renderDriveBackupSection()}</div>
+    <div class="rws-page">
+      <div class="rws-page-header">
+        <button class="rws-back-btn" onclick="navigateTo('${backTarget}')">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <span class="rws-page-title">Backup &amp; Restore</span>
+        <div style="width:36px;"></div>
+      </div>
+      <div class="rw-body" style="padding:14px 14px 32px;">
+        <div class="card drive-backup-card" style="margin:0;padding:0;overflow:hidden;">
+          <div id="driveBackupSection">${renderDriveBackupSection()}</div>
+        </div>
       </div>
     </div>`;
   if (typeof lucide !== 'undefined') lucide.createIcons();

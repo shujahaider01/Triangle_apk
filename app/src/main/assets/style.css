@@ -2522,15 +2522,6 @@ body{font-family:'DM Sans','Outfit',-apple-system,BlinkMacSystemFont,sans-serif;
 .drive-pill-dot{width:8px;height:8px;border-radius:50%;background:#e53e3e;flex-shrink:0;}
 .drive-pill-btn.is-on .drive-pill-dot{background:#22c55e;}
 [data-theme="dark"] .drive-row-icon{background:var(--surface);}
-/* This page hides both the bottom nav AND the app's top header bar (see
-   updateBadges()/navigateTo() in script.js) — but .content-area's own
-   height rules elsewhere (max-height/min-height calc(100vh - Npx)) still
-   assume that top header bar is visible and reserve its height, so on
-   this page the container stops short of the actual screen edge, leaving
-   a dead strip of background at the bottom no matter the padding. Forcing
-   full-viewport height here (instead of the header-aware calc) is what
-   actually makes it reach 100%. */
-[data-page="adminDriveBackup"] .content-area{padding-bottom:22px!important;max-height:none!important;min-height:100vh!important;}
 
 /* TABLE */
 .table{width:100%;border-collapse:collapse;}
