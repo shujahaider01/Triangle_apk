@@ -5133,7 +5133,7 @@ async function navigateTo(page, navOpts) {
   const isAlt = isTaskMobile || isAdminTaskMobile || isComplaintMobile;
   const isProfilePage = page === 'internProfile';
   const isSettingsP   = page === 'internSettings' || page === 'adminAccountSettings' || page === 'adminTrainees';
-  const isLeaderboardPage = page === 'internLeaderboard';
+  const isLeaderboardPage = page === 'internLeaderboard' || page === 'individualLeaderboard';
   const mainTopbarEl = document.getElementById('mainTopbar');
   if (mainTopbarEl) mainTopbarEl.style.display = (isProfilePage || isSettingsP || isLeaderboardPage || isTaskMobile || isAdminTaskMobile || page === 'internRewards' || page === 'adminRewards' || page === 'internFeed' || page === 'adminFeed' || page === 'dmInbox' || page === 'dmThread' || page === 'internDashboard' || page === 'adminDashboard' || page === 'internNotifs' || page === 'adminNotifs' || page === 'adminDriveBackup' || page === 'adminJoinRequests') ? 'none' : '';
   if (tbDefault)      tbDefault.style.display      = isAlt ? 'none' : 'flex';
@@ -5226,6 +5226,7 @@ async function navigateTo(page, navOpts) {
     internTasks:        () => renderInternTasks(ca),
     internComplaints:   () => renderInternComplaints(ca),
     internLeaderboard:  () => renderInternLeaderboard(ca),
+    individualLeaderboard: () => renderIndividualLeaderboard(ca),
     internRewards:      () => renderInternRewards(ca),
     internMorning:      () => renderInternMorning(ca),
     internWorkLog:      () => renderInternWorkLog(ca),
@@ -5429,7 +5430,7 @@ function updateBadges() {
   // destinations, per "do not display navigation bar" on those screens.
   const hideIndividualNav = currentPage === 'adminRewards' || currentPage === 'internLeaderboard'
     || currentPage === 'dmThread' || currentPage === 'dmInbox' || currentPage === 'internNotifs'
-    || currentPage === 'adminDriveBackup'
+    || currentPage === 'adminDriveBackup' || currentPage === 'individualLeaderboard'
     || (currentPage === 'internRewards' && window.rwTab === 'history')
     || isViewingOtherProfile;
   if (mobNav)  mobNav.style.display  = (showIntern && !hideInternNav) ? 'flex' : 'none';
@@ -6590,7 +6591,12 @@ function renderInternDashboard(ca) {
       const categories = [
         { name:'Rewards',     enabled:true,  bg:'#e4defb', color:'#6d5ef5', action:"navigateTo('internRewards')",
           icon:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13"/><path d="M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7"/><path d="M7.5 8a2.5 2.5 0 0 1 0-5C11 3 12 8 12 8s1-5 4.5-5a2.5 2.5 0 0 1 0 5"/></svg>` },
-        { name:'Leaderboard', enabled:true,  bg:'#fef3c7', color:'#d97706', action:"navigateTo('internLeaderboard')",
+        // Individual accounts each live alone in their own solo org (see
+        // _authCreateIndividualAccount()), so internLeaderboard — a
+        // same-org ranking — would only ever show them alone at #1 of 1.
+        // Route to the real cross-account ranking instead; see
+        // getIndividualGlobalRanking()/renderIndividualLeaderboard().
+        { name:'Leaderboard', enabled:true,  bg:'#fef3c7', color:'#d97706', action: currentRole === 'individual' ? "navigateTo('individualLeaderboard')" : "navigateTo('internLeaderboard')",
           icon:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>` },
         { name:'Moods',       enabled:false, bg:'#ede9fe', color:'#8b5cf6', action:null, emoji:'😊' },
         { name:'Reviews',     enabled:false, bg:'#dcfce7', color:'#22c55e', action:null,
@@ -14094,6 +14100,147 @@ function renderInternLeaderboard(ca) {
   `;
 
   if (window.lucide) lucide.createIcons();
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// INDIVIDUAL GLOBAL LEADERBOARD — every Individual account lives alone in
+// its own solo org (see _authCreateIndividualAccount()), so there's no
+// same-org roster to rank against the way interns rank against org-mates
+// in renderInternLeaderboard() above. This ranks every Individual account
+// in the whole app against every other instead.
+//
+// A single fbRootGet('organizations') already returns every org's full
+// node — icon/color/type/adminId AND its nested data/submissions blob —
+// same fetch-everything-then-filter-client-side approach
+// _authLoadPublicOrgs() already uses for the public-org picker, so no
+// per-org follow-up fetch is needed to get each account's points/avatar.
+// Only the real Google display name lives elsewhere (users/{uid}.name,
+// since organizations/{orgId}.name is the auto-generated "X's Space" label,
+// not the person's name) — a second fbRootGet('users') fills that in.
+// ══════════════════════════════════════════════════════════════════════
+async function getIndividualGlobalRanking() {
+  const [allOrgs, allUsers] = await Promise.all([
+    fbRootGet('organizations').catch(() => ({})),
+    fbRootGet('users').catch(() => ({})),
+  ]);
+  const orgs = allOrgs || {};
+  const users = allUsers || {};
+  return Object.keys(orgs)
+    .map(orgId => ({ orgId, ...orgs[orgId] }))
+    .filter(o => o.type === 'individual' && o.adminId)
+    .map(o => {
+      const sub = (o.data && o.data.submissions && o.data.submissions[o.adminId]) || {};
+      const points = sub.points || 0;
+      return {
+        orgId: o.orgId,
+        userId: o.adminId,
+        name: (users[o.adminId] && users[o.adminId].name) || o.name || 'Individual',
+        points,
+        level: _internLevel(points),
+        avatarCfg: Object.assign({}, AVATAR_DEFAULTS, sub.avatar || {}),
+      };
+    })
+    .sort((a, b) => b.points - a.points);
+}
+
+function renderIndividualLeaderboard(ca) {
+  const myId = currentUser.id;
+
+  // Same decorative league trophy row as renderInternLeaderboard — no real
+  // league/promotion mechanic exists, this just mirrors that visual
+  // structure for a consistent look between the two leaderboards.
+  const trophies = [
+    { key: 'bronze',  color: '#cd7f32', state: 'past' },
+    { key: 'silver',  color: '#adb5bd', state: 'past' },
+    { key: 'sapphire',color: '#3b82f6', state: 'active' },
+    { key: 'emerald', color: '#22c55e', state: 'locked' },
+    { key: 'ruby',    color: '#ef4444', state: 'locked' },
+  ];
+  const trophyRowHtml = trophies.map(t => {
+    const isActive = t.state === 'active';
+    const size = isActive ? 72 : 52;
+    const opacity = t.state === 'locked' ? 0.35 : (t.state === 'past' ? 0.55 : 1);
+    return `
+      <div style="display:flex;flex-direction:column;align-items:center;gap:4px;opacity:${opacity};">
+        <svg width="${size}" height="${size}" viewBox="0 0 24 24">
+          <path d="M12 2 L21.5 8.9 L17.9 20.1 L6.1 20.1 L2.5 8.9 Z" fill="${t.color}"/>
+          <path d="M12 2 L21.5 8.9 L17.9 20.1 L12 20.1 Z" fill="rgba(0,0,0,.15)"/>
+          <path d="M12 6.5 L13.2 9.9 L16.8 10.1 L14 12.4 L14.9 15.9 L12 13.8 L9.1 15.9 L10 12.4 L7.2 10.1 L10.8 9.9 Z" fill="#fff"/>
+        </svg>
+      </div>`;
+  }).join('');
+
+  // Reuses .lb2-page's own structure wholesale (see renderInternLeaderboard
+  // above), just with a back button + title row ahead of the trophy row —
+  // intern's leaderboard is a persistent nav tab so it never needed one,
+  // this is a sub-page reached from the Dashboard's Leaderboard tile. Both
+  // rows stay inside the single .lb2-header sticky wrapper rather than each
+  // getting their own position:sticky, which would need explicit stacked
+  // `top` offsets to avoid overlapping — one sticky container is simpler.
+  ca.innerHTML = `
+    <div class="lb2-page">
+      <div class="lb2-header">
+        <div style="display:flex;align-items:center;gap:12px;padding:0 16px 8px;">
+          <button class="rws-back-btn" onclick="navigateTo('internDashboard')">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+          </button>
+          <span class="rws-page-title" style="margin:0;">Global Leaderboard</span>
+          <div style="width:36px;"></div>
+        </div>
+        <div class="lb2-trophy-row">${trophyRowHtml}</div>
+      </div>
+      <div class="lb2-list" id="individualLbList">
+        <div style="padding:40px 0;text-align:center;color:#9ca3af;font-size:13px;">Loading global rankings…</div>
+      </div>
+    </div>`;
+  if (window.lucide) lucide.createIcons();
+
+  getIndividualGlobalRanking().then(rows => {
+    // Bail if the user navigated elsewhere while this was loading — same
+    // race guard navigateTo() itself uses, needed here because this is
+    // genuinely async (a live cross-org fetch) unlike renderInternLeaderboard's
+    // synchronous read of already-loaded local data.
+    if (currentPage !== 'individualLeaderboard') return;
+    const listEl = document.getElementById('individualLbList');
+    if (!listEl) return;
+
+    if (!rows.length) {
+      listEl.innerHTML = `<div style="padding:40px 20px;text-align:center;color:#9ca3af;font-size:13px;">No individual accounts yet.</div>`;
+      return;
+    }
+
+    listEl.innerHTML = rows.map((r, idx) => {
+      const rank = idx + 1;
+      const isMe = r.userId === myId;
+      const avatarUrl = buildAvatarUrl(r.avatarCfg);
+      const rankBadge = rank === 1
+        ? `<div class="lb2-rank-medal" style="background:#ffd700;">1</div>`
+        : rank === 2
+        ? `<div class="lb2-rank-medal" style="background:#c0c0c0;">2</div>`
+        : rank === 3
+        ? `<div class="lb2-rank-medal" style="background:#cd7f32;">3</div>`
+        : `<div class="lb2-rank-number">${rank}</div>`;
+      return `
+        <div class="lb2-row ${isMe ? 'lb2-row-me' : ''}">
+          ${rankBadge}
+          <div class="lb2-avatar-wrap">
+            <div class="lb2-avatar"><img src="${avatarUrl}" alt="${sanitize(r.name)}"></div>
+            ${isMe ? '<span class="lb2-online-dot"></span>' : ''}
+          </div>
+          <div class="lb2-user-info">
+            <div class="lb2-name">${sanitize(r.name)}${isMe ? ' <span class="lb2-you-tag">YOU</span>' : ''}</div>
+            <div class="lb2-meta">Level ${r.level}</div>
+          </div>
+          <div class="lb2-xp">${r.points.toLocaleString()} XP</div>
+        </div>`;
+    }).join('');
+    if (window.lucide) lucide.createIcons();
+  }).catch(e => {
+    console.error('[renderIndividualLeaderboard] failed to load ranking:', e);
+    if (currentPage !== 'individualLeaderboard') return;
+    const listEl = document.getElementById('individualLbList');
+    if (listEl) listEl.innerHTML = `<div style="padding:40px 20px;text-align:center;color:#9ca3af;font-size:13px;">Couldn't load the leaderboard — check your connection.</div>`;
+  });
 }
 
 
