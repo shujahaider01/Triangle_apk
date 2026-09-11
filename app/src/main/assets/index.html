@@ -231,6 +231,41 @@
       </span>
     </button>
   </nav>
+
+  <!-- ══ BOTTOM NAV — INDIVIDUAL (Dashboard / Tasks / Rewards, no Feed or
+       Leaderboard — see the Individual role spec) ══ -->
+  <nav class="duo-nav" id="mobIndividualBottomNav" style="display:none;">
+    <!-- Home -->
+    <button class="duo-nav-btn" id="imbn-dashboard" onclick="navigateTo('internDashboard')">
+      <span class="duo-nav-pill">
+        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        <span class="duo-nav-label">Home</span>
+      </span>
+    </button>
+    <!-- Tasks (this page has its own Tasks/Habits tabs) -->
+    <button class="duo-nav-btn" id="imbn-tasks" onclick="navigateTo('internTasks')">
+      <span class="duo-nav-pill">
+        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        <span class="duo-nav-label">Tasks</span>
+      </span>
+    </button>
+    <!-- Rewards (no FAB placeholder here — the FAB now floats independently
+         in the bottom-right corner, out of the nav's flex flow, so all 4
+         buttons space out evenly via justify-content:space-around) -->
+    <button class="duo-nav-btn" id="imbn-rewards" onclick="navigateTo('internRewards')">
+      <span class="duo-nav-pill">
+        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12V22H4V12"/><path d="M22 7H2v5h20V7z"/><path d="M12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></svg>
+        <span class="duo-nav-label">Rewards</span>
+      </span>
+    </button>
+    <!-- Profile (Settings lives here too — see Individual role spec) -->
+    <button class="duo-nav-btn" id="imbn-profile" onclick="navigateTo('internProfile')">
+      <span class="duo-nav-pill">
+        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+        <span class="duo-nav-label">Profile</span>
+      </span>
+    </button>
+  </nav>
 </div><!-- /mainScreen -->
 
 <!-- TOAST -->

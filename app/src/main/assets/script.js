@@ -1146,12 +1146,40 @@ async function sendDmMessage(threadId, rawText) {
   });
 
   // Notify the recipient — into the admin inbox if they're the admin (id 99),
-  // otherwise into that intern's inbox.
+  // otherwise into that intern's inbox. See _dmNotifyRecipient's comment
+  // for why this can't just always be pushInternNotif/pushAdminNotif.
   const notif = { type:'chat_message', title: currentUser.name, body: preview, otherUserId: myId };
-  if (String(otherId) === '99') pushAdminNotif(notif);
-  else pushInternNotif(otherId, notif);
+  _dmNotifyRecipient(otherId, notif);
 
   return { ok:true, messageId };
+}
+
+// pushInternNotif/pushAdminNotif both write to the CURRENT user's own org
+// (_txpBasePath() → window.currentOrgId) — correct for same-org DMs (the
+// only kind that used to exist: admin<->intern, intern<->intern, all
+// sharing one org), but wrong the moment a DM partner is a cross-account
+// contact (anyone reached via the "New Message" search below, or Add
+// Participants) — writing "to" their id inside MY org would land nowhere
+// they'll ever read. So: same-org recipients keep the fast, unchanged
+// local path; anyone not found in INTERNS gets the cross-org
+// notify+push pattern the rest of this feature family already uses (see
+// _deliverTaskCopyToUser).
+async function _dmNotifyRecipient(otherId, notif) {
+  if (String(otherId) === '99') { pushAdminNotif(notif); return; }
+  if (INTERNS.find(i => String(i.id) === String(otherId))) { pushInternNotif(otherId, notif); return; }
+  try {
+    const rec = await fbRootGet('users/' + otherId);
+    if (!rec || !rec.orgId) return; // nothing we can do — recipient record missing/misconfigured
+    const notifPath = `organizations/${rec.orgId}/data/notifications/${otherId}`;
+    const notifs = await fbRootGet(notifPath) || [];
+    const entry = { id: 'n-'+Date.now()+'-'+Math.random().toString(36).slice(2,7), ...notif, read:false, createdAt: Date.now() };
+    notifs.unshift(entry);
+    if (notifs.length > NOTIF_MAX_PER_INBOX) notifs.length = NOTIF_MAX_PER_INBOX;
+    await fbRootPut(notifPath, notifs);
+    _enqueuePush('intern', otherId, entry, entry.id);
+  } catch (e) {
+    console.warn('[dm] cross-account notify failed', e);
+  }
 }
 
 // Called when a thread is opened — zeroes the current user's unread count
@@ -1221,7 +1249,11 @@ async function renderDmInbox(ca) {
         <button class="dm-thread-back" onclick="navigateTo(currentRole === 'admin' ? 'adminDashboard' : 'internDashboard')" aria-label="Back">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
         </button>
-        <div class="dm-inbox-title">Chat</div>
+        <div class="dm-inbox-title">Messages</div>
+        ${currentRole === 'individual' ? `
+        <button class="dm-inbox-search-btn" onclick="openDmNewMessagePage()" aria-label="New Message" title="New Message">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+        </button>` : ''}
         <button class="dm-inbox-search-btn" onclick="_dmToggleInboxSearch()" aria-label="Search">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
         </button>
@@ -1289,6 +1321,41 @@ function _dmPinInboxToVisualViewport() {
   window._dmInboxViewportHandler = apply;
 }
 
+// Resolves a DM participant's display name. INTERNS only ever holds THIS
+// org's roster, so a cross-account contact (anyone reached via the new
+// "New Message" search below, or Add Participants) was previously always
+// falling through to a hardcoded "Unknown" — this is the fix, checked in
+// two tiers:
+//  1. Synchronous, no network: INTERNS (same-org, unchanged/fast path),
+//     then this account's own db.shareContacts cache (anyone previously
+//     task-shared with or messaged — see _recordShareContact).
+//  2. window._dmUserCache — filled in by _dmResolveUserAsync below for a
+//     genuinely new cross-account id this device has never seen. Callers
+//     needing an instant synchronous render (inbox list, thread header)
+//     use tier 1 immediately and patch in tier 2's result once it resolves
+//     — same "render now, fill in later" pattern as everything else in
+//     this feature family.
+function _dmResolveUserSync(id) {
+  const local = INTERNS.find(i => String(i.id) === String(id));
+  if (local) return { id: local.id, name: local.name };
+  const cached = (db.shareContacts||[]).find(c => String(c.id) === String(id));
+  if (cached) return { id, name: cached.name };
+  return window._dmUserCache?.[id] || null;
+}
+
+window._dmUserCache = window._dmUserCache || {};
+async function _dmResolveUserAsync(id) {
+  if (window._dmUserCache[id]) return window._dmUserCache[id];
+  try {
+    const rec = await fbRootGet('users/' + id);
+    const resolved = rec ? { id, name: rec.name || rec.email || 'User' } : { id, name: 'Unknown' };
+    window._dmUserCache[id] = resolved;
+    return resolved;
+  } catch (e) {
+    return { id, name: 'Unknown' };
+  }
+}
+
 function _dmRenderInboxRows(entries) {
   const list = document.getElementById('dmInboxList');
   if (!list) return;
@@ -1300,18 +1367,20 @@ function _dmRenderInboxRows(entries) {
       : `<div class="dm-inbox-empty">
           <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><path d="m22 6-10 7L2 6"/></svg>
           <div>No messages yet</div>
-          <div style="font-size:12.5px;margin-top:4px;">Visit someone's profile and tap Message to start a conversation.</div>
+          <div style="font-size:12.5px;margin-top:4px;">Tap the compose icon above to message anyone by name or email.</div>
         </div>`;
     return;
   }
 
+  const unresolved = [];
   list.innerHTML = entries.map(t => {
-    const other = INTERNS.find(i => String(i.id) === String(t.otherUserId)) || { name: 'Unknown', id: t.otherUserId };
+    const other = _dmResolveUserSync(t.otherUserId) || { name: 'Unknown', id: t.otherUserId };
+    if (other.name === 'Unknown') unresolved.push(t.otherUserId);
     const avatarUrl = buildAvatarUrl(getAvatarConfig(other.id));
     const unread = t.unreadCount || 0;
     const timeLabel = t.lastMessageAt ? getTimeAgo(t.lastMessageAt) : '';
     return `
-      <div class="dm-inbox-row" onclick="_dmOpenFromInbox('${t.threadId}', '${other.id}')">
+      <div class="dm-inbox-row" data-dm-other="${t.otherUserId}" onclick="_dmOpenFromInbox('${t.threadId}', '${other.id}')">
         <img class="dm-inbox-avatar" src="${avatarUrl}" alt="" onerror="this.style.opacity='.3'">
         <div class="dm-inbox-info">
           <div class="dm-inbox-name-row">
@@ -1325,6 +1394,15 @@ function _dmRenderInboxRows(entries) {
         </div>
       </div>`;
   }).join('');
+
+  // Background-resolve any cross-account names the sync lookup missed,
+  // then patch just that row's name text in place.
+  unresolved.forEach(id => {
+    _dmResolveUserAsync(id).then(u => {
+      const row = list.querySelector(`[data-dm-other="${id}"] .dm-inbox-name`);
+      if (row) row.textContent = u.name;
+    });
+  });
 }
 
 function _dmToggleInboxSearch() {
@@ -1346,7 +1424,7 @@ function _dmFilterInbox(query) {
   const all = window._dmInboxEntries || [];
   if (!q) { _dmRenderInboxRows(all); return; }
   const filtered = all.filter(t => {
-    const other = INTERNS.find(i => String(i.id) === String(t.otherUserId));
+    const other = _dmResolveUserSync(t.otherUserId);
     return other && other.name.toLowerCase().includes(q);
   });
   _dmRenderInboxRows(filtered);
@@ -1361,6 +1439,110 @@ function _dmOpenFromInbox(threadId, otherUserId) {
   navigateTo('dmThread');
 }
 
+// ── New Message (start a chat with anyone by name/email) ─────────────────
+// Same search-by-name-or-email picker as Add Participants
+// (openAddParticipantsPage) and its Suggestions list is the SAME
+// db.shareContacts history — a person you've task-shared with shows up
+// here too, and starting a chat here adds them to that same list, so both
+// features build one unified "people I've reached out to" list rather than
+// two separate ones. DM data itself needs none of the cross-org copying
+// task-sharing needs (dmData/orgs/{DM_ORG_ID} is one shared space every
+// account already reads/writes — see the comment above DM_ORG_ID's
+// declaration), so this picker is simpler than the task one: pick someone,
+// call openDmThread(), done.
+function openDmNewMessagePage() {
+  if (currentRole !== 'individual') return; // see the ct-header button's gating comment above renderDmInbox
+  const html = `
+  <div class="ct-overlay visible" id="dmnOverlay"></div>
+  <div class="ct-page open" id="dmnPage">
+    <div class="ct-header">
+      <button class="ct-back-btn" onclick="_dmnClose()">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+      <span class="ct-header-title">New Message</span>
+      <span style="width:36px;"></span>
+    </div>
+    <div class="ct-body">
+      <div class="ct-field-wrap" style="padding-top:16px;">
+        <span class="ct-field-label">To</span>
+        <input type="text" id="dmnSearchInput" class="ct-search-input" placeholder="Search by name or email" autocomplete="off" oninput="_dmnSearchInputHandler()">
+      </div>
+      <div class="ct-section" style="padding-top:6px;">
+        <div class="ct-section-label">Suggestions</div>
+        <div id="dmnSuggestions" class="share-results">${_dmnSuggestionsHtml('')}</div>
+      </div>
+    </div>
+  </div>`;
+  document.getElementById('dmnWrapper')?.remove();
+  const w = document.createElement('div'); w.id = 'dmnWrapper'; w.innerHTML = html;
+  document.body.appendChild(w);
+  setTimeout(() => document.getElementById('dmnSearchInput')?.focus(), 300);
+}
+
+function _dmnClose() {
+  document.getElementById('dmnWrapper')?.remove();
+}
+
+function _dmnSuggestionsHtml(query) {
+  if (query) return `<div class="share-empty">Searching…</div>`;
+  const contacts = (db.shareContacts || []).slice().sort((a,b) => (b.lastAt||0) - (a.lastAt||0)).slice(0, 8);
+  if (!contacts.length) return `<div class="share-empty">Search above to start a conversation</div>`;
+  return contacts.map(c => _dmnRowHtml(c.id, c.name, c.email)).join('');
+}
+
+function _dmnRowHtml(id, name, email) {
+  const initial = sanitize((name||email||'?').charAt(0).toUpperCase());
+  const jsEsc = s => String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+  return `<div class="share-user-row" onclick="_dmStartNewChat('${id}','${jsEsc(name)}','${jsEsc(email)}')" style="cursor:pointer;">
+    <div class="share-user-avatar">${initial}</div>
+    <div class="share-user-info">
+      <div class="share-user-name">${sanitize(name||'User')}</div>
+      <div class="share-user-email">${sanitize(email||'')}</div>
+    </div>
+  </div>`;
+}
+
+let _dmnSearchTimer = null;
+function _dmnSearchInputHandler() {
+  clearTimeout(_dmnSearchTimer);
+  const q = document.getElementById('dmnSearchInput')?.value.trim() || '';
+  if (!q) { const el = document.getElementById('dmnSuggestions'); if (el) el.innerHTML = _dmnSuggestionsHtml(''); return; }
+  const el = document.getElementById('dmnSuggestions');
+  if (el) el.innerHTML = `<div class="share-empty">Searching…</div>`;
+  _dmnSearchTimer = setTimeout(() => _dmnRenderSearch(q), 350);
+}
+
+async function _dmnRenderSearch(query) {
+  const el = document.getElementById('dmnSuggestions');
+  if (!el) return;
+  try {
+    const allUsers = await fbRootGet('users') || {};
+    const q = query.toLowerCase();
+    const matches = Object.keys(allUsers)
+      .map(uid => ({ uid, rec: allUsers[uid] }))
+      .filter(({ uid, rec }) => {
+        if (!rec || uid === String(currentUser.id)) return false;
+        const name = (rec.name || '').toLowerCase();
+        const email = (rec.email || '').toLowerCase();
+        return name.includes(q) || email.includes(q);
+      })
+      .slice(0, 8);
+    if (document.getElementById('dmnSearchInput')?.value.trim().toLowerCase() !== q) return; // stale
+    if (!matches.length) { el.innerHTML = `<div class="share-empty">No matching users found</div>`; return; }
+    el.innerHTML = matches.map(({ uid, rec }) => _dmnRowHtml(uid, rec.name || rec.email || 'User', rec.email || '')).join('');
+  } catch (e) {
+    console.error('[dmNewMessage] search failed', e);
+    el.innerHTML = `<div class="share-empty">Search failed — check your connection</div>`;
+  }
+}
+
+function _dmStartNewChat(id, name, email) {
+  _recordShareContact(id, name, email); // same shared "recent contacts" list Add Participants uses
+  try { fbPut('shareContacts', db.shareContacts); } catch (e) {}
+  _dmnClose();
+  openDmThread(id);
+}
+
 // ══════════════════════════════════════════════════════════════════════
 // DIRECT MESSAGING — THREAD VIEW (Slice 3)
 // Full-screen 1:1 conversation: message history (real-time), a compose
@@ -1372,7 +1554,7 @@ async function renderDmThread(ca) {
   const otherUserId = window._dmActiveOtherUserId;
   if (!threadId || !otherUserId) { navigateTo('dmInbox'); return; }
 
-  const other = INTERNS.find(i => String(i.id) === String(otherUserId)) || { name: 'Unknown', id: otherUserId };
+  const other = _dmResolveUserSync(otherUserId) || { name: 'Loading…', id: otherUserId };
   const avatarUrl = buildAvatarUrl(getAvatarConfig(other.id));
   window._dmActiveOtherName = other.name;
 
@@ -1402,6 +1584,17 @@ async function renderDmThread(ca) {
 
   _dmRefreshBlockBanner(threadId);
   _dmSetStatusBarColor(true);
+
+  // Cross-account contact the sync lookup couldn't resolve — patch the
+  // header in place once the async lookup returns (see
+  // _dmResolveUserAsync's comment above _dmRenderInboxRows).
+  if (other.name === 'Loading…') {
+    _dmResolveUserAsync(otherUserId).then(u => {
+      window._dmActiveOtherName = u.name;
+      const nameEl = document.querySelector('.dm-thread-name');
+      if (nameEl) nameEl.textContent = u.name;
+    });
+  }
 
   markDmThreadRead(threadId);
   _dmSubscribeThreadMessages(threadId, currentUser.id);
@@ -1823,7 +2016,7 @@ async function _refreshInternsRoster(orgId) {
   try {
     const allUsers = await fbRootGet('users') || {};
     const records = Object.keys(allUsers).map(uid => ({ uid, rec: allUsers[uid] }));
-    const realAdmin = records.find(({rec}) => rec && rec.orgId === orgId && rec.role === 'admin');
+    const realAdmin = records.find(({rec}) => rec && rec.orgId === orgId && (rec.role === 'admin' || rec.role === 'individual'));
     const adminEntry = realAdmin
       ? { id: realAdmin.uid, name: realAdmin.rec.name || realAdmin.rec.email || 'Admin', username: realAdmin.rec.email || realAdmin.uid, role: 'admin' }
       : legacyAdminEntry;
@@ -1897,7 +2090,8 @@ function blankDB() {
     rewardSettings: { xpPerCoin: 10, roundingPolicy: 'floor', setupDone: false },
     rewards: [], redemptions: [],
     notifications: {}, adminNotifications: [],
-    autoAssignCycle: { colorIdx: 0, iconIdx: 0 }
+    autoAssignCycle: { colorIdx: 0, iconIdx: 0 },
+    shareContacts: []
   };
   INTERNS.filter(i => i.id !== 99).forEach(i => {
     d.submissions[i.id]  = {office:0, project:0, bugs:0, suggestions:0, dailyCounts:{}, points:0, attendanceLogs:[], entries:[]};
@@ -1920,6 +2114,7 @@ function patchDB(data) {
   });
   if (!data.contributors)       data.contributors = [];
   if (!data.tasks)              data.tasks = [];
+  if (!data.shareContacts)      data.shareContacts = [];
   // SELF-HEAL: tasks/habits used to occasionally get PATCHed as raw arrays
   // (fbPatch('tasks', db.tasks) / fbPatch('habits', db.habits) — now fixed
   // to use fbPut instead, see those call sites), which corrupts them
@@ -3540,6 +3735,13 @@ function _authRenderRoleSelect() {
         </div>
         <i data-lucide="chevron-right" class="role-card-arrow"></i>
       </div>
+      <div class="role-card" onclick="_authPickRole('individual')">
+        <div class="role-card-icon"><i data-lucide="user"></i></div>
+        <div class="role-card-body">
+          <div class="role-card-title">I'm Using This on My Own</div>
+        </div>
+        <i data-lucide="chevron-right" class="role-card-arrow"></i>
+      </div>
       <div class="auth-link-row" style="align-self:center;">Already have an account? <a onclick="showAuthScreen('welcome')">Login</a></div>
     </div>`;
 }
@@ -3606,8 +3808,55 @@ async function _authEnterRealApp(user, orgId) {
 function _authPickRole(role) {
   if (role === 'admin') {
     _authPickAdminRole();
+  } else if (role === 'individual') {
+    _authCreateIndividualAccount();
   } else {
     showAuthScreen('traineeFindOrg', { role });
+  }
+}
+
+// ── Individual flow ─────────────────────────────────────────────────────
+// "Individual" is implemented as a normal organization with exactly one
+// member (this person) — reuses 100% of the existing
+// organizations/{orgId}/data storage, task/habit/reward code, and backup/
+// restore, with no new Firebase schema at all (same reasoning as
+// _authCreateOrganization() just below). The only differences from a
+// normal admin-created org: no name/username/visibility questions, no
+// join-request step at all — create it and go straight into the
+// dashboard. role is stored as 'individual' (not 'admin') so the UI layer
+// can hide multi-person-only screens (Leaderboard, Feed, Chat, Complaints,
+// Join Requests, the hamburger side-drawer) and the task/habit/reward
+// creation forms can skip their Assign To sections — see the
+// currentRole === 'individual' checks throughout this file.
+async function _authCreateIndividualAccount() {
+  const f = window._authFlow;
+  if (!f.uid) { showToast('Please sign in again', 'error'); showAuthScreen('welcome'); return; }
+  showLoading('Setting up your space...');
+  try {
+    const { color: orgColor, icon: orgIcon } = await _nextOrgIconAndColor();
+    const displayName = f.googleName || 'My';
+    const newOrgId = await fbPost('organizations', {
+      name: `${displayName}'s Space`,
+      username: null,
+      visibility: 'private',
+      type: 'individual',
+      adminId: f.uid,
+      createdAt: Date.now(),
+      status: 'Active',
+      icon: orgIcon,
+      color: orgColor
+    });
+    await fbRootPut('users/' + f.uid, {
+      name: f.googleName || '', email: f.googleEmail || '',
+      role: 'individual', orgId: newOrgId, createdAt: Date.now()
+    });
+    hideLoading();
+    const user = { id: f.uid, name: f.googleName || '', username: f.googleEmail || f.uid, role: 'individual' };
+    await _authEnterRealApp(user, newOrgId);
+  } catch (e) {
+    hideLoading();
+    console.error('[_authCreateIndividualAccount] failed:', e);
+    showToast('Could not set up your space: ' + e.message, 'error');
   }
 }
 
@@ -4187,6 +4436,57 @@ const EMAILJS_PUBLIC_KEY  = 'bRNGLcTaJW2tTsFC1'; // EmailJS dashboard > Account 
 const EMAILJS_PRIVATE_KEY = '20c9Z-zyjYmWJRMPaoTQw'; // EmailJS dashboard > Account > General > Private Key
 const _EMAILJS_CONFIGURED = EMAILJS_SERVICE_ID !== 'FILL_ME_IN' && EMAILJS_TEMPLATE_ID !== 'FILL_ME_IN' && EMAILJS_PUBLIC_KEY !== 'FILL_ME_IN';
 
+// ── Real "you've been invited" emails (Add Participants → Invite) ────────
+// Same EmailJS account/service/keys as the OTP email above — but a REAL
+// invite email needs its own template, not a reuse of the OTP one: the OTP
+// template's only content variable is {{code}}, and sending a task invite
+// through it would just show the recipient a stray verification code with
+// no mention of who invited them or what task it's for. So this is a
+// second template, same account.
+// To finish wiring this up: in the same EmailJS dashboard used for the OTP
+// template, create ANOTHER template (Email Templates > Create New) whose
+// subject/body reference {{to_email}} (recipient), {{from_name}} (who's
+// inviting them), {{task_title}} (the task's title), and {{app_name}} —
+// then paste its id below. Until it's filled in, _sendTaskInviteEmail()
+// below skips the real send and surfaces this in a toast, same
+// "FILL_ME_IN preview fallback" pattern as the OTP template above.
+const EMAILJS_INVITE_TEMPLATE_ID = 'template_gy2be9h'; // EmailJS dashboard > Email Templates > your NEW invite template's ID
+const _EMAILJS_INVITE_CONFIGURED = EMAILJS_SERVICE_ID !== 'FILL_ME_IN' && EMAILJS_INVITE_TEMPLATE_ID !== 'FILL_ME_IN' && EMAILJS_PUBLIC_KEY !== 'FILL_ME_IN';
+
+// Sends the actual "you've been invited to a task" email. Note this can
+// only ever be a "download the app and sign up" nudge — there's no uid to
+// deliver an actual task copy to until that email creates an account, and
+// nothing here auto-attaches the task once they do (that'd need a
+// pendingInvites-by-email table checked at signup time, which doesn't
+// exist yet — a reasonable follow-up if it turns out people want it).
+async function _sendTaskInviteEmail(toEmail, taskTitle) {
+  if (!_EMAILJS_INVITE_CONFIGURED) {
+    console.warn('[_sendTaskInviteEmail] Invite template not configured yet — see EMAILJS_INVITE_TEMPLATE_ID comment.');
+    showToast('Invite emails aren\'t set up yet — see EMAILJS_INVITE_TEMPLATE_ID in script.js', 'error');
+    return false;
+  }
+  const reqBody = {
+    service_id: EMAILJS_SERVICE_ID,
+    template_id: EMAILJS_INVITE_TEMPLATE_ID,
+    user_id: EMAILJS_PUBLIC_KEY,
+    template_params: { to_email: toEmail, from_name: currentUser?.name || 'A Triangle user', task_title: taskTitle, app_name: 'Triangle' }
+  };
+  if (EMAILJS_PRIVATE_KEY !== 'FILL_ME_IN') reqBody.accessToken = EMAILJS_PRIVATE_KEY;
+  try {
+    const res = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(reqBody)
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error('EMAILJS_REJECTED: HTTP ' + res.status + (text ? ' — ' + text : ''));
+    }
+    return true;
+  } catch (e) {
+    console.error('[_sendTaskInviteEmail] send failed:', e);
+    return false;
+  }
+}
+
 // Firebase Realtime DB keys can't contain ".", "#", "$", "[", "]" —
 // encodeURIComponent already escapes "@" but leaves "." alone, so that
 // still needs manual escaping to turn an email into one valid path segment.
@@ -4353,6 +4653,11 @@ async function _authRouteAfterIdentity(uid, displayName, displayEmail) {
       const traineeUser = { id: uid, name: existing.name || displayName, username: existing.email || displayEmail };
       await _authEnterRealApp(traineeUser, existing.orgId);
     }
+  } else if (existing && existing.role === 'individual' && existing.orgId) {
+    // Recognized returning individual user — straight into their own
+    // dashboard, same as a returning admin.
+    const individualUser = { id: uid, name: existing.name || displayName || '', username: existing.email || displayEmail || uid, role: 'individual' };
+    await _authEnterRealApp(individualUser, existing.orgId);
   } else {
     showAuthScreen('roleSelect', { uid, googleName: displayName, googleEmail: displayEmail });
   }
@@ -4638,9 +4943,26 @@ const adminNav = [
   {id:'adminJoinRequests', icon:'user-plus',      label:'Join Requests', badge:'sb-joinreq'},
   {id:'adminAccountSettings', icon:'settings',     label:'Settings'},
 ];
+// Individual role: only the screens that make sense with no org/roster at
+// all. Habits live inside the Tasks page (it has its own Tasks/Habits
+// tabs), and Settings lives on the Profile popup instead of its own nav
+// item — see the Individual role spec.
+// Rewards points at internRewards (the "Reward Store" page — browse/redeem/
+// wallet/history, already fully self-service and per-user) rather than
+// adminRewards: adminRewards hides the bottom nav on its main view (it
+// expects to be a subpage reached FROM somewhere, not a nav destination),
+// which is exactly the "nav bar not displaying in Rewards" bug reported.
+// internRewards doesn't have that problem and already looks like the
+// desired reference design. Manage/Settings (admin-only capabilities) are
+// still reachable from there — see the dropdown in renderInternRewards().
+const individualNav = [
+  {id:'internDashboard', icon:'home',            label:'Dashboard'},
+  {id:'internTasks',     icon:'clipboard-list',  label:'Tasks'},
+  {id:'internRewards',   icon:'gift',            label:'Rewards'},
+];
 
 function renderSidebar() {
-  const nav = currentRole === 'admin' ? adminNav : internNav;
+  const nav = currentRole === 'admin' ? adminNav : (currentRole === 'individual' ? individualNav : internNav);
   const fullName = sanitize(currentUser?.name || 'User');
   const firstName = fullName.split(' ')[0];
   const initial = fullName.charAt(0);
@@ -4800,6 +5122,7 @@ async function navigateTo(page, navOpts) {
     _navStack.push(page);
   }
   document.body.setAttribute('data-page', page); // allows CSS to react per-page
+  document.body.setAttribute('data-role', currentRole || ''); // Individual role: lets style.css re-enable #mobFab on specific pages (see the [data-role="individual"] override near #mobFab's unconditional display:none!important rule)
   // Switch topbar mode on mobile
   const isTaskMobile        = page === 'internTasks';
   const isAdminTaskMobile   = page === 'adminTasks';
@@ -4817,14 +5140,14 @@ async function navigateTo(page, navOpts) {
   if (tbTasks)        tbTasks.style.display        = isTaskMobile        ? 'flex' : 'none';
   if (tbComplaints)   tbComplaints.style.display   = isComplaintMobile   ? 'flex' : 'none';
   const dmEnvelopeBtn = document.getElementById('dmEnvelopeBtn');
-  if (dmEnvelopeBtn) dmEnvelopeBtn.style.display = (page === 'internDashboard' || page === 'adminDashboard') ? 'inline-flex' : 'none';
+  if (dmEnvelopeBtn) dmEnvelopeBtn.style.display = ((page === 'internDashboard' || page === 'adminDashboard') && currentRole !== 'individual') ? 'inline-flex' : 'none';
   // Re-run lucide so topbar icons render correctly after swap
   if (window.lucide) lucide.createIcons();
   // Hide mob-fab on pages with topbar + button
   const mobFabEl = document.getElementById('mobFab');
   const adminFabEl = document.getElementById('adminMobFab');
   const isSettingsPage = page === 'internSettings';
-  if (mobFabEl)   mobFabEl.style.display   = (isTaskMobile||isComplaintMobile||isProfilePage||isSettingsPage||isLeaderboardPage||page==='internRewards'||page==='internFeed'||page==='dmInbox'||page==='dmThread'||page==='internNotifs') ? 'none' : '';
+  if (mobFabEl)   mobFabEl.style.display   = ((isTaskMobile && currentRole!=='individual')||isComplaintMobile||isProfilePage||isSettingsPage||isLeaderboardPage||page==='internRewards'||page==='internFeed'||page==='dmInbox'||page==='dmThread'||page==='internNotifs') ? 'none' : '';
   if (adminFabEl) adminFabEl.style.display = (isAdminTaskMobile || page==='adminFeed' || page==='dmInbox' || page==='dmThread' || page==='adminAccountSettings' || page==='adminTrainees' || page==='adminNotifs' || page==='adminDriveBackup' || page==='adminJoinRequests') ? 'none' : '';
   document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
   document.querySelectorAll('.sidebar-item-modern').forEach(el => el.classList.remove('active'));
@@ -4848,6 +5171,18 @@ async function navigateTo(page, navOpts) {
   document.querySelectorAll('#mobAdminBottomNav .duo-nav-btn').forEach(b => b.classList.remove('active'));
   const ambnEl = document.getElementById(ambnMap[page]);
   if (ambnEl) ambnEl.classList.add('active');
+  // Update Individual bottom nav active state — BUG FIX: this map never
+  // existed at all (only mbnMap/ambnMap above did), so #mobIndividualBottomNav's
+  // buttons never got the "active" class added on navigation, no matter
+  // which tab you were on.
+  const imbnMap = {
+    internDashboard:'imbn-dashboard', internTasks:'imbn-tasks',
+    internRewards:'imbn-rewards',     adminRewards:'imbn-rewards',
+    internProfile:'imbn-profile',     internSettings:'imbn-profile',
+  };
+  document.querySelectorAll('#mobIndividualBottomNav .duo-nav-btn').forEach(b => b.classList.remove('active'));
+  const imbnEl = document.getElementById(imbnMap[page]);
+  if (imbnEl) imbnEl.classList.add('active');
 
   const ca = document.getElementById('contentArea');
   ca.scrollTop = 0;
@@ -5076,17 +5411,37 @@ function updateBadges() {
   const isLoggedIn = !!currentUser;
   const mobNav  = document.getElementById('mobBottomNav');
   const adminNv = document.getElementById('mobAdminBottomNav');
+  const indivNav = document.getElementById('mobIndividualBottomNav');
   const mobFab  = document.getElementById('mobFab');
   const showIntern = isLoggedIn && !isLoginActive && currentRole === 'intern';
   const showAdmin  = isLoggedIn && !isLoginActive && currentRole === 'admin';
+  const showIndividual = isLoggedIn && !isLoginActive && currentRole === 'individual';
   const isViewingOtherProfile = currentPage === 'internProfile' && window._viewingProfileId && window._viewingProfileId !== currentUser?.id;
   const hideInternNav = currentPage === 'internRewards' || currentPage === 'dmThread' || currentPage === 'dmInbox' || currentPage === 'internLeaderboard' || currentPage === 'internNotifs' || isViewingOtherProfile;
+  // Individual: same idea as hideInternNav. individualNav's Rewards item
+  // now points at internRewards (the "Reward Store" page), which is a real
+  // nav destination and keeps the bottom nav visible on its main "store"
+  // tab — internRewards is deliberately NOT in this hide list wholesale.
+  // adminRewards (Manage/Settings/Redeemed, reached via that page's ⋮ menu)
+  // and internRewards' own "history" tab (Transaction History) DO hide the
+  // nav, same as Leaderboard/Chat/Notifications — all of these are utility
+  // subpages/screens reached via their own back button, not primary nav
+  // destinations, per "do not display navigation bar" on those screens.
+  const hideIndividualNav = currentPage === 'adminRewards' || currentPage === 'internLeaderboard'
+    || currentPage === 'dmThread' || currentPage === 'dmInbox' || currentPage === 'internNotifs'
+    || (currentPage === 'internRewards' && window.rwTab === 'history')
+    || isViewingOtherProfile;
   if (mobNav)  mobNav.style.display  = (showIntern && !hideInternNav) ? 'flex' : 'none';
   if (adminNv) adminNv.style.display = (showAdmin  && currentPage !== 'adminRewards'  && currentPage !== 'dmThread' && currentPage !== 'dmInbox' && currentPage !== 'adminNotifs' && currentPage !== 'adminDriveBackup' && currentPage !== 'adminJoinRequests') ? 'flex' : 'none';
-  if (mobFab)  mobFab.style.display  = (showIntern && !hideInternNav) ? 'flex' : 'none';
+  if (indivNav) indivNav.style.display = (showIndividual && !hideIndividualNav) ? 'flex' : 'none';
+  if (mobFab)  mobFab.style.display  = ((showIntern && !hideInternNav) || (showIndividual && !hideIndividualNav)) ? 'flex' : 'none';
   // REQ 2: Admin FAB
   const adminFab = document.getElementById('adminMobFab');
   if (adminFab) adminFab.style.display = (showAdmin && currentPage !== 'adminRewards' && currentPage !== 'dmThread' && currentPage !== 'dmInbox' && currentPage !== 'adminNotifs' && currentPage !== 'adminDriveBackup' && currentPage !== 'adminJoinRequests') ? 'flex' : 'none';
+  // Individual role: no hamburger/side-drawer at all — Settings lives on
+  // Profile instead (see the Individual role spec).
+  const hamburgerBtnEl = document.getElementById('hamburgerBtn');
+  if (hamburgerBtnEl) hamburgerBtnEl.style.display = showIndividual ? 'none' : '';
 
   if (currentRole !== 'intern') {
     const nc = (db.complaints || []).filter(c => !c.read).length;
@@ -5136,6 +5491,7 @@ const NOTIF_META = {
   reward_delivered: { icon:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>', label:'Reward Delivered', color:'#6c5ce7', bg:'rgba(108,92,231,.12)' },
   post_created:     { icon:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>', label:'New Post', color:'#6366f1', bg:'rgba(99,102,241,.12)' },
   chat_message:     { icon:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>', label:'New Message', color:'#14b8a6', bg:'rgba(20,184,166,.12)' },
+  task_shared:      { icon:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>', label:'Task Shared', color:'#e85d26', bg:'rgba(232,93,38,.12)' },
   _default:         { icon:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>', label:'Notification', color:'#6c5ce7', bg:'rgba(108,92,231,.12)' },
 };
 
@@ -5215,7 +5571,16 @@ function renderInternNotifs(ca) {
   if (!ca) return;
   const list = (db.notifications && db.notifications[currentUser.id]) || [];
   const unreadCt = list.filter(n => !n.read).length;
+  // BUG FIX: this used to inject .rws-page-header + .rw-body straight into
+  // the shared #contentArea (itself independently scrollable) with no page
+  // wrapper of its own — the exact same architecture bug the Reward Store
+  // page had, where the sticky header had no single, unambiguous scrolling
+  // ancestor to pin against and could drift instead of staying put.
+  // Wrapping in .arw-page (Admin Rewards' own plain, gradient-free
+  // position:fixed scroll owner — reused as-is, not the Reward Store's
+  // gradient .rws-page) fixes it the same way.
   ca.innerHTML = `
+    <div class="arw-page">
     <div class="rws-page-header">
       <button class="rws-back-btn" onclick="navigateTo('internDashboard')">
         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
@@ -5224,7 +5589,8 @@ function renderInternNotifs(ca) {
       <div style="width:36px;"></div>
     </div>
     ${unreadCt > 0 ? `<div style="padding:14px 14px 0;text-align:right;"><span class="arw-toggle-link" onclick="markAllNotifsRead(false)">Mark all Read</span></div>` : ''}
-    <div class="rw-body" style="padding:14px 14px 32px;">${_renderNotifList(list, false)}</div>`;
+    <div class="rw-body" style="padding:14px 14px 32px;">${_renderNotifList(list, false)}</div>
+    </div>`;
   const _nav = document.getElementById('mobBottomNav');
   const _fab = document.getElementById('mobFab');
   if (_nav) _nav.style.display = 'none';
@@ -8726,8 +9092,58 @@ function setDashTab(idx, btn) {
 // ╚══════════════════════════════════════════════════╝
 // Quick-Actions sheet (Report a Bug / Log a Project / Add Suggestion) removed
 // per request — the "+" button now simply shows a "Coming soon" toast.
+// Individual role: the FAB only ever shows on Tasks/Habits (internTasks —
+// Tasks and Habits are swipeable tabs within this one page, tracked by
+// window.thpActiveTab, see _thpOnScroll()) and Rewards (internRewards — the
+// "Reward Store" page, individualNav's Rewards destination) — so instead of
+// asking "what do you want to create?" every time, jump straight into
+// whichever creation flow matches the page/tab the user is already on.
+// (Previously this opened a 3-option picker sheet regardless of context —
+// removed per the latest spec: "if we are in task page then it bring us
+// directly to task creation page, not give us options... apply this to
+// Habit and Reward also".)
 function openFabSheet() {
+  if (currentRole === 'individual') {
+    if (currentPage === 'internTasks') {
+      if (window.thpActiveTab === 'habits') {
+        openCreateHabit();
+      } else {
+        openCreateTaskIndividual();
+      }
+      return;
+    }
+    if (currentPage === 'internRewards') {
+      rwAdminCreateReward();
+      return;
+    }
+    // Fallback — shouldn't normally be reachable since the FAB is only
+    // ever visible on the two pages handled above, but keep the button
+    // from silently doing nothing if that ever changes.
+    openCreateTaskIndividual();
+    return;
+  }
   showToast('Coming soon');
+}
+
+// Individual role: same task-creation panel Create Task uses for admin,
+// just opened in self-create mode (isAdmin=false) — no Assign To/Required
+// Approval sections get rendered (see _openCtPanel()'s isAdmin branches),
+// and it saves via saveCustomTask(), which already assigns the task
+// straight to currentUser.id. This reuses the exact panel + save path a
+// personal-task feature was already built around (see
+// openCreateCustomTask()'s "Admin Only" block above it, added later to
+// gate trainees out of it — individual is exactly the case that block was
+// never meant to cover).
+function openCreateTaskIndividual() {
+  _approvalContribId = null; _repeatConfig = null;
+  _ctCategory = 'Personal'; _ctPriority = 'None';
+  const _auto = _nextAutoColorAndIcon();
+  _ctIconSvg = _auto.iconSvg; _ctIconColor = _auto.color;
+  _ctFreqMode = 'None'; _ctDowSelected = []; _ctDomSelected = [];
+  _ctPeriodN = 3; _ctPeriodUnit = 'week';
+  window._ctAttachName = null; window._ctChecklistItems = [];
+  window._ctParticipants = [];
+  _openCtPanel(false);
 }
 
 function closeFabSheet() {
@@ -10651,6 +11067,14 @@ function _openNewTaskDetail(tid) {
     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
   </button>` : '';
 
+  // Share Task (Individual role only, and only the task's own owner can
+  // share it — see openShareTaskSheet()'s comment for why cross-account
+  // sharing is Individual-only and owner-only).
+  const canShareTask = currentRole === 'individual' && task.isPersonal && task.createdBy == currentUser?.id;
+  const shareBtn = canShareTask ? `<button class="ntd-topbar-btn" onclick="openShareTaskSheet('${task.id}')" title="Share Task">
+    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+  </button>` : '';
+
   const assignedRowHtml = (() => {
     const allAssigned = [];
     if (task.assignedTo) {
@@ -10677,6 +11101,18 @@ function _openNewTaskDetail(tid) {
     }).join('');
   })();
 
+  // Shared-task info (Individual role's cross-account sharing — see
+  // openShareTaskSheet()). A shared task lives as its own independent copy
+  // in each participant's own account (see shareTaskWithUser()'s comment
+  // for why), so these are just read-only breadcrumbs: who this copy came
+  // from, and — on the original owner's copy — who they've shared it with.
+  const sharedByRow = task.sharedFromName
+    ? `<div class="ntd-row"><span class="ntd-rlabel">Shared By</span><span class="ntd-rval">${sanitize(task.sharedFromName)}</span></div>`
+    : '';
+  const sharedWithRow = (task.sharedToUsers && task.sharedToUsers.length)
+    ? `<div class="ntd-row"><span class="ntd-rlabel">Shared With</span><span class="ntd-rval">${task.sharedToUsers.map(u=>sanitize(u.name)).join(', ')}</span></div>`
+    : '';
+
   // Fix 1: XP label (replaces freq pill)
   const xpLabel = task.points ? `${task.points} XP` : pts;
 
@@ -10701,6 +11137,7 @@ function _openNewTaskDetail(tid) {
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
           </button>
           <div style="flex:1;"></div>
+          ${shareBtn}
           ${editBtn}
           <!-- Fix 2: static status badge, no dropdown -->
           <div class="ntd-status-badge">
@@ -10763,6 +11200,8 @@ function _openNewTaskDetail(tid) {
             <div class="ntd-acc-body ${detailsOpen}" id="ntdBd_Details">
               ${assignedRowHtml}
               <div class="ntd-row"><span class="ntd-rlabel">Created By</span><span class="ntd-rval">Admin</span></div>
+              ${sharedByRow}
+              ${sharedWithRow}
               <div class="ntd-row"><span class="ntd-rlabel">Points</span><span class="ntd-rval"><span class="ntd-chip-sm" style="background:${heroColor}18;color:${heroColor};">${pts}</span></span></div>
               <div class="ntd-row"><span class="ntd-rlabel">Category</span><span class="ntd-rval"><span class="ntd-chip-sm" style="background:${heroColor}18;color:${heroColor};">${sanitize(cat)}</span></span></div>
               <div class="ntd-row"><span class="ntd-rlabel">Task Created</span><span class="ntd-rval">${created}</span></div>
@@ -10991,6 +11430,7 @@ async function ntdChangeStatus(taskId, iid, newStatus) {
         const internName = INTERNS.find(i => i.id === uid)?.name || currentUser?.name || 'Intern';
         pushAdminNotif({ type:'task_completed', title:'Task Completed', body:`${internName} completed "${task.title}"`, internId: uid });
       }
+      if (task.isPersonal && task.sharedFromUserId) _notifyShareSenderOnComplete(task);
     }
     if (task.inProgress) task.inProgress = task.inProgress.filter(id => id !== uid);
   } else {
@@ -11179,6 +11619,458 @@ function _ntdRefreshNotes(taskId) {
   const section = document.getElementById('ntdNotesSection'); if (!section) return;
   section.dataset.color = heroColor;
   section.innerHTML = _buildNotesTimeline(visibleNotes, heroColor, isAdminView);
+}
+
+// ╔══════════════════════════════════════════════════╗
+// ║              SHARE TASK (Individual role)         ║
+// ╚══════════════════════════════════════════════════╝
+// Individual accounts each live in their own solo organization (see
+// _authPickRole()'s 'individual' branch — a fresh newOrgId is minted per
+// signup), so — unlike admin/trainee "sharedWith" further up, which just
+// adds a second id to an array everyone in the SAME org's realtime stream
+// already sees — sharing a personal task across two individual accounts
+// means crossing organizations/{orgId}/data boundaries the realtime
+// subscription (_thStartRealtime) never reaches. Rather than attempt a
+// live cross-org subscription (a much larger change touching loadDB/
+// patchDB/every stat function that assumes `db` is one org's blob), we
+// give the recipient their own independent COPY of the task, written
+// straight into their org via the root-level fbRootGet/fbRootPut helpers
+// (same ones the org directory / user roster already use for exactly this
+// "reach outside my own org" need). It's assignedTo/createdBy them, so it
+// appears in their list, they can complete it, and it counts in their own
+// stats the same as any task they created themselves — just tagged with
+// sharedFromName/sharedFromTaskId so both sides can see the link. The two
+// copies do NOT stay in sync after that (each side's completion is their
+// own) — intentional: this is "send them a copy of my task", not a live
+// shared checklist, and needing true two-way sync is exactly the
+// cross-org realtime problem described above.
+
+// ── Add Participants (task-creation picker) ──────────────────────────────
+// Same delivery mechanism as the Share button above (_deliverTaskCopyToUser),
+// just chosen BEFORE the task exists yet — selections are held in
+// window._ctParticipants and only actually delivered once saveCustomTask()
+// has built the real task object. Suggestions come from db.shareContacts
+// (see _recordShareContact()), sorted most-recent-first.
+function openAddParticipantsPage() {
+  if (!window._ctParticipants) window._ctParticipants = [];
+  const html = `
+  <div class="ct-overlay visible" id="apOverlay" onclick=""></div>
+  <div class="ct-page open" id="apPage">
+    <div class="ct-header">
+      <button class="ct-back-btn" onclick="_apClose()">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+      <span class="ct-header-title">Add Participants</span>
+      <button class="ct-back-btn" onclick="_apClose()">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+      </button>
+    </div>
+    <div class="ct-body">
+      <div class="ct-field-wrap" style="padding-top:16px;">
+        <span class="ct-field-label">To</span>
+        <input type="text" id="apSearchInput" class="ct-search-input" placeholder="Search person by name" autocomplete="off" oninput="_apSearchInputHandler()">
+      </div>
+      <div class="ct-field-wrap" style="padding-top:2px;">
+        <span class="ct-field-label">Invite</span>
+        <input type="email" id="apInviteInput" class="ct-search-input" placeholder="Enter email" autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();_apInviteByEmail();}">
+      </div>
+      <div id="apChipsRow" class="ap-chips-row">${_apChipsHtml()}</div>
+      <div class="ct-section" style="padding-top:6px;">
+        <div class="ct-section-label">Suggestions</div>
+        <div id="apSuggestions" class="share-results">${_apSuggestionsHtml('')}</div>
+      </div>
+    </div>
+  </div>`;
+  document.getElementById('apWrapper')?.remove();
+  const w = document.createElement('div'); w.id = 'apWrapper'; w.innerHTML = html;
+  document.body.appendChild(w);
+  if (window.lucide) lucide.createIcons();
+}
+
+function _apClose() {
+  document.getElementById('apWrapper')?.remove();
+  // Refresh the (still open) create-task panel's participants row
+  const preview = document.getElementById('ctParticipantsPreview');
+  if (preview) {
+    const n = (window._ctParticipants||[]).length;
+    preview.textContent = n ? `${n} participant${n>1?'s':''} added` : 'Add Participants (optional)';
+    preview.classList.toggle('has-text', !!n);
+  }
+}
+
+function _apChipsHtml() {
+  const list = window._ctParticipants || [];
+  if (!list.length) return '';
+  return list.map(p => `
+    <span class="ap-chip">
+      ${sanitize(p.name)}
+      <button type="button" class="ap-chip-x" onclick="_apRemoveParticipant('${p.id}')">✕</button>
+    </span>`).join('');
+}
+
+function _apRefreshChips() {
+  const el = document.getElementById('apChipsRow');
+  if (el) el.innerHTML = _apChipsHtml();
+}
+
+function _apIsAdded(id) {
+  return (window._ctParticipants||[]).some(p => String(p.id) === String(id));
+}
+
+function _apAddParticipant(id, name, email) {
+  if (!window._ctParticipants) window._ctParticipants = [];
+  if (String(id) === String(currentUser?.id)) { showToast("You're already on this task", 'error'); return; }
+  if (_apIsAdded(id)) return;
+  window._ctParticipants.push({ id, name, email });
+  _apRefreshChips();
+  const q = document.getElementById('apSearchInput')?.value.trim() || '';
+  _apRenderSuggestions(q);
+}
+
+function _apRemoveParticipant(id) {
+  window._ctParticipants = (window._ctParticipants||[]).filter(p => String(p.id) !== String(id));
+  _apRefreshChips();
+  const q = document.getElementById('apSearchInput')?.value.trim() || '';
+  _apRenderSuggestions(q);
+}
+
+// Default (no query) list: this account's share history, most-recent-first.
+// With a query: live directory search, same source _shareTaskSearch uses.
+function _apSuggestionsHtml(query) {
+  if (query) return `<div class="share-empty">Searching…</div>`; // replaced async by _apRenderSuggestions
+  const contacts = (db.shareContacts || []).slice().sort((a,b) => (b.lastAt||0) - (a.lastAt||0)).slice(0, 8);
+  if (!contacts.length) return `<div class="share-empty">Search above to add someone</div>`;
+  return contacts.map(c => _apRowHtml(c.id, c.name, c.email)).join('');
+}
+
+function _apRowHtml(id, name, email) {
+  const added = _apIsAdded(id);
+  const initial = sanitize((name||email||'?').charAt(0).toUpperCase());
+  // JS-string-literal escaping for the onclick attribute — separate from
+  // sanitize()'s HTML escaping above (which leaves apostrophes untouched),
+  // needed because these values get embedded inside single-quoted JS
+  // string arguments in an onclick handler.
+  const jsEsc = s => String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+  return `<div class="share-user-row">
+    <div class="share-user-avatar">${initial}</div>
+    <div class="share-user-info">
+      <div class="share-user-name">${sanitize(name||'User')}</div>
+      <div class="share-user-email">${sanitize(email||'')}</div>
+    </div>
+    <button class="btn ${added?'btn-secondary':'btn-primary'} share-btn-mini" ${added?'disabled':''} onclick="_apAddParticipant('${id}','${jsEsc(name)}','${jsEsc(email)}')">${added?'Added':'Add'}</button>
+  </div>`;
+}
+
+let _apSearchTimer = null;
+function _apSearchInputHandler() {
+  clearTimeout(_apSearchTimer);
+  const q = document.getElementById('apSearchInput')?.value.trim() || '';
+  if (!q) { _apRenderSuggestions(''); return; }
+  const el = document.getElementById('apSuggestions');
+  if (el) el.innerHTML = `<div class="share-empty">Searching…</div>`;
+  _apSearchTimer = setTimeout(() => _apRenderSuggestions(q), 350);
+}
+
+async function _apRenderSuggestions(query) {
+  const el = document.getElementById('apSuggestions');
+  if (!el) return;
+  if (!query) { el.innerHTML = _apSuggestionsHtml(''); return; }
+  try {
+    const allUsers = await fbRootGet('users') || {};
+    const q = query.toLowerCase();
+    const matches = Object.keys(allUsers)
+      .map(uid => ({ uid, rec: allUsers[uid] }))
+      .filter(({ uid, rec }) => {
+        if (!rec || uid === String(currentUser.id)) return false;
+        const name = (rec.name || '').toLowerCase();
+        const email = (rec.email || '').toLowerCase();
+        return name.includes(q) || email.includes(q);
+      })
+      .slice(0, 8);
+    if (document.getElementById('apSearchInput')?.value.trim().toLowerCase() !== q) return; // stale
+    if (!matches.length) { el.innerHTML = `<div class="share-empty">No matching users found</div>`; return; }
+    el.innerHTML = matches.map(({ uid, rec }) => {
+      const name = rec.name || rec.email || 'User';
+      return _apRowHtml(uid, name, rec.email || '');
+    }).join('');
+  } catch (e) {
+    console.error('[addParticipants] search failed', e);
+    el.innerHTML = `<div class="share-empty">Search failed — check your connection</div>`;
+  }
+}
+
+async function _apInviteByEmail() {
+  const input = document.getElementById('apInviteInput');
+  const email = input?.value.trim().toLowerCase();
+  if (!email || !email.includes('@')) { showToast('Enter a valid email', 'error'); return; }
+  try {
+    const allUsers = await fbRootGet('users') || {};
+    const match = Object.keys(allUsers).map(uid => ({ uid, rec: allUsers[uid] }))
+      .find(({rec}) => (rec?.email||'').toLowerCase() === email);
+    if (!match) {
+      // No existing account — send a real invite email via EmailJS (see
+      // EMAILJS_INVITE_TEMPLATE_ID above) instead of just adding them,
+      // since there's no uid yet to deliver a task copy to.
+      const taskTitle = document.getElementById('ptTitle')?.value.trim() || 'a task';
+      const sent = await _sendTaskInviteEmail(email, taskTitle);
+      if (sent) showToast(`Invite sent to ${email} ✓`, 'success');
+      // _sendTaskInviteEmail already toasts its own error if it fails/isn't configured.
+      if (input && sent) input.value = '';
+      return;
+    }
+    _apAddParticipant(match.uid, match.rec.name || match.rec.email, match.rec.email || '');
+    if (input) input.value = '';
+    showToast('Added ✓', 'success');
+  } catch (e) {
+    console.error('[addParticipants] invite lookup failed', e);
+    showToast('Could not look up that email — check your connection', 'error');
+  }
+}
+
+function openShareTaskSheet(taskId) {
+  const task = db.tasks.find(t => t.id == taskId);
+  if (!task || !task.isPersonal || task.createdBy != currentUser?.id) return;
+  const sharedWith = task.sharedToUsers || [];
+  openModal(`
+    <div class="modal-title">Share "${sanitize(task.title)}"</div>
+    <div class="form-group">
+      <label>Search by username or email</label>
+      <input type="text" id="shareUserSearch" placeholder="Type at least 2 characters…" autocomplete="off"
+             oninput="_shareTaskSearchInput('${task.id}')">
+    </div>
+    <div id="shareSearchResults" class="share-results"></div>
+    ${sharedWith.length ? `
+      <div class="share-already-hd">Already shared with</div>
+      <div class="share-already-list">
+        ${sharedWith.map(u => `
+          <div class="share-user-row">
+            <div class="share-user-avatar">${sanitize((u.name||'?').charAt(0).toUpperCase())}</div>
+            <div class="share-user-info">
+              <div class="share-user-name">${sanitize(u.name)}</div>
+              <div class="share-user-email">${sanitize(u.email||'')}</div>
+            </div>
+          </div>`).join('')}
+      </div>` : ''}
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal()">Done</button>
+    </div>
+  `);
+}
+
+let _shareSearchTimer = null;
+function _shareTaskSearchInput(taskId) {
+  clearTimeout(_shareSearchTimer);
+  const q = document.getElementById('shareUserSearch')?.value.trim() || '';
+  const results = document.getElementById('shareSearchResults');
+  if (q.length < 2) { if (results) results.innerHTML = ''; return; }
+  if (results) results.innerHTML = `<div class="share-empty">Searching…</div>`;
+  _shareSearchTimer = setTimeout(() => _shareTaskSearch(taskId, q), 350);
+}
+
+async function _shareTaskSearch(taskId, query) {
+  const results = document.getElementById('shareSearchResults');
+  if (!results) return;
+  try {
+    const allUsers = await fbRootGet('users') || {};
+    const q = query.toLowerCase();
+    const task = db.tasks.find(t => t.id == taskId);
+    const alreadyShared = new Set((task?.sharedToUsers || []).map(u => String(u.id)));
+    const matches = Object.keys(allUsers)
+      .map(uid => ({ uid, rec: allUsers[uid] }))
+      .filter(({ uid, rec }) => {
+        if (!rec || uid === String(currentUser.id)) return false;
+        if (alreadyShared.has(uid)) return false;
+        const name = (rec.name || '').toLowerCase();
+        const email = (rec.email || '').toLowerCase();
+        return name.includes(q) || email.includes(q);
+      })
+      .slice(0, 8);
+    // Search box may have moved on / query changed while this was in flight
+    if (document.getElementById('shareUserSearch')?.value.trim().toLowerCase() !== q) return;
+    if (!matches.length) { results.innerHTML = `<div class="share-empty">No matching users found</div>`; return; }
+    results.innerHTML = matches.map(({ uid, rec }) => {
+      const name = sanitize(rec.name || rec.email || 'User');
+      const email = sanitize(rec.email || '');
+      const initial = sanitize((rec.name || rec.email || '?').charAt(0).toUpperCase());
+      const orgId = sanitize(rec.orgId || '');
+      return `<div class="share-user-row">
+        <div class="share-user-avatar">${initial}</div>
+        <div class="share-user-info">
+          <div class="share-user-name">${name}</div>
+          <div class="share-user-email">${email}</div>
+        </div>
+        <button class="btn btn-primary share-btn-mini" onclick="shareTaskWithUser('${taskId}','${uid}','${orgId}')">Share</button>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    console.error('[shareTask] user search failed', e);
+    results.innerHTML = `<div class="share-empty">Search failed — check your connection</div>`;
+  }
+}
+
+// Delivers an independent copy of `sourceTask` into targetUid's own org
+// (targetOrgId) and notifies them — the shared piece behind both the
+// task-detail "Share" button (shareTaskWithUser) and the "Add
+// Participants" picker in task creation (saveCustomTask). See the big
+// comment above openShareTaskSheet() for why this is a copy, not a live
+// link, and why it needs root-level cross-org writes at all.
+async function _deliverTaskCopyToUser(sourceTask, targetUid, targetOrgId, targetName) {
+  const newTask = {
+    id: 'st-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
+    title: sourceTask.title,
+    description: sourceTask.description || '',
+    dueDate: sourceTask.dueDate || '',
+    repeat: null,
+    category: sourceTask.category || 'Personal',
+    priority: sourceTask.priority || 'None',
+    isPersonal: true,
+    createdBy: targetUid, assignedTo: targetUid,
+    createdDate: today(), createdAt: Date.now(),
+    points: sourceTask.points || 0, approvalRequired: false,
+    isTemplate: false,
+    iconSvg: sourceTask.iconSvg || null, iconColor: sourceTask.iconColor || null,
+    checklist: (sourceTask.checklist && sourceTask.checklist.length) ? sourceTask.checklist.map(i => ({ id: i.id, text: i.text, done: false })) : null,
+    symbol: sourceTask.symbol || null,
+    attachmentName: sourceTask.attachmentName || null,
+    sharedFromUserId: currentUser.id,
+    sharedFromName: currentUser.name,
+    sharedFromTaskId: sourceTask.id,
+    // The sender's own org — cached here at share time (rather than looked
+    // up again later) so that when the RECIPIENT eventually completes this
+    // copy, _notifyShareSenderOnComplete() knows exactly which org's
+    // taskCompletions/notifications to write back into without another
+    // fbRootGet('users') round trip.
+    sharedFromOrgId: window.currentOrgId || TXP_ORG_ID,
+  };
+
+  // Root-level read-modify-write against the RECIPIENT's own org — same
+  // "no live subscription, just fetch/patch the exact path" approach
+  // _refreshInternsRoster/_refreshPendingJoinReqCount already use for
+  // reaching outside the current org.
+  const targetTasksPath = `organizations/${targetOrgId}/data/tasks`;
+  const targetTasks = await fbRootGet(targetTasksPath) || [];
+  targetTasks.push(newTask);
+  await fbRootPut(targetTasksPath, targetTasks);
+
+  // Notify the recipient — real in-app notification entry, same shape
+  // pushInternNotif() writes, plus a real FCM push via the existing
+  // pushQueue mechanism (_enqueuePush, defined up near registerDeviceToken
+  // — it's root-level/fbPost already, so it reaches the recipient's device
+  // regardless of which org they're in, same as the writes above).
+  const notifPath = `organizations/${targetOrgId}/data/notifications/${targetUid}`;
+  const targetNotifs = await fbRootGet(notifPath) || [];
+  const notifEntry = {
+    id: 'n-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
+    type: 'task_shared',
+    title: 'Task Shared With You',
+    body: `${currentUser.name} shared "${sourceTask.title}" with you`,
+    read: false, createdAt: Date.now(),
+  };
+  targetNotifs.unshift(notifEntry);
+  if (targetNotifs.length > NOTIF_MAX_PER_INBOX) targetNotifs.length = NOTIF_MAX_PER_INBOX;
+  await fbRootPut(notifPath, targetNotifs);
+  _enqueuePush('intern', targetUid, notifEntry, notifEntry.id);
+}
+
+// Recent/frequent "Suggestions" in the participant picker are sourced
+// from this — every id ever shared with, on this account, gets one entry
+// here that keeps a running count + last-shared time. Lives inside `db`
+// (persisted the same way tasks/habits are) since — unlike the cross-org
+// writes above — it only needs to be readable by the sharer themselves.
+function _recordShareContact(id, name, email) {
+  if (!db.shareContacts) db.shareContacts = [];
+  const existing = db.shareContacts.find(c => String(c.id) === String(id));
+  if (existing) {
+    existing.count = (existing.count || 1) + 1;
+    existing.lastAt = Date.now();
+    existing.name = name; existing.email = email; // keep in sync in case they changed it
+  } else {
+    db.shareContacts.push({ id, name, email, count: 1, lastAt: Date.now() });
+  }
+  markDirty();
+}
+
+// Called right after a RECIPIENT marks a shared task's copy done (see the
+// completeTask()/ntdChangeStatus() call sites below) — tells the original
+// sender it's done, two ways: a real push (same pushQueue/_enqueuePush
+// mechanism as everything else in this file — TxpMessagingService.kt on
+// the native side is generic over notification `type`, so nothing there
+// needs to change to support this) and marking the SENDER'S OWN original
+// copy's status as done too, via a targeted cross-org PATCH.
+//
+// Deliberately one-directional and one-shot: this only fires on the
+// RECIPIENT completing THEIR copy, never the reverse, and never on
+// un-completing/undo — so the sender's copy can't flip back to incomplete
+// under them just because the recipient hit the 5-second undo toast. If
+// two-way sync (undo included) turns out to matter, it's a small extension
+// of this same function; not built in until it's actually needed.
+//
+// taskCompletions is a plain {key: {done}} MAP (not an array), so a PATCH
+// with just the one key is safe here — this is exactly the kind of PATCH
+// patchDB()'s self-heal comment (search "SELF-HEAL" above) warns is unsafe
+// for ARRAYS like tasks/habits, but taskCompletions was never one.
+async function _notifyShareSenderOnComplete(task) {
+  if (!task || !task.sharedFromUserId || !task.sharedFromOrgId || !task.sharedFromTaskId) return; // not a received share
+  const senderId = task.sharedFromUserId, senderOrgId = task.sharedFromOrgId;
+  try {
+    // Mark the sender's own original task's status as done too.
+    const senderKey = task.sharedFromTaskId + '-' + senderId;
+    await fbRootPatch(`organizations/${senderOrgId}/data/taskCompletions`, { [senderKey]: { done: true } });
+
+    // Real in-app notification + real push, same shape/mechanism as every
+    // other cross-org notification in this feature (see
+    // _deliverTaskCopyToUser above).
+    const notifPath = `organizations/${senderOrgId}/data/notifications/${senderId}`;
+    const notifs = await fbRootGet(notifPath) || [];
+    const entry = {
+      id: 'n-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
+      type: 'task_completed',
+      title: 'Task Completed',
+      body: `${currentUser.name} completed "${task.title}"`,
+      read: false, createdAt: Date.now(),
+    };
+    notifs.unshift(entry);
+    if (notifs.length > NOTIF_MAX_PER_INBOX) notifs.length = NOTIF_MAX_PER_INBOX;
+    await fbRootPut(notifPath, notifs);
+    _enqueuePush('intern', senderId, entry, entry.id);
+  } catch (e) {
+    // Best-effort, same as _enqueuePush elsewhere — the recipient's own
+    // completion (already applied to their local db before this is called)
+    // must never be rolled back just because notifying the sender failed.
+    console.warn('[shareTask] notifying sender of completion failed', e);
+  }
+}
+
+async function shareTaskWithUser(taskId, targetUid, targetOrgId) {
+  const task = db.tasks.find(t => t.id == taskId);
+  if (!task || !task.isPersonal || task.createdBy != currentUser?.id) return;
+  if (!targetOrgId) { showToast('Could not share — that user has no account set up yet', 'error'); return; }
+  const btn = event?.target;
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+  try {
+    const targetUsers = await fbRootGet('users') || {};
+    const targetRec = targetUsers[targetUid];
+    if (!targetRec) { showToast('User not found', 'error'); return; }
+    const targetName = targetRec.name || targetRec.email || 'User';
+    const targetEmail = targetRec.email || '';
+
+    await _deliverTaskCopyToUser(task, targetUid, targetOrgId, targetName);
+
+    // Record on MY copy who I've shared it with
+    if (!task.sharedToUsers) task.sharedToUsers = [];
+    task.sharedToUsers.push({ id: targetUid, name: targetName, email: targetEmail });
+    _recordShareContact(targetUid, targetName, targetEmail);
+    markDirty();
+    try { await fbPut('tasks', db.tasks); } catch (e) {}
+    try { await fbPut('shareContacts', db.shareContacts); } catch (e) {}
+
+    showToast(`Shared with ${targetName} ✓`, 'success');
+    openShareTaskSheet(taskId); // refresh the sheet (moves them into "Already shared with")
+  } catch (e) {
+    console.error('[shareTask] failed', e);
+    showToast('Could not share task — check your connection', 'error');
+    if (btn) { btn.disabled = false; btn.textContent = 'Share'; }
+  }
 }
 
 function ntdOpenLightbox(src) {
@@ -11398,6 +12290,7 @@ async function completeTask(tid, iid, circleEl, source) {
   // completion always notifies admin regardless of how fast the intern
   // checks off multiple tasks in a row.
   pushAdminNotif({ type:'task_completed', title:'Task Completed', body:`${currentUser.name} completed "${task.title}"`, internId: iid });
+  if (task.isPersonal && task.sharedFromUserId) _notifyShareSenderOnComplete(task);
 
   // Re-render same page/view — then restore position
   const caEl = document.getElementById('contentArea');
@@ -11496,6 +12389,7 @@ function _ctDefaultsForCat(cat) {
 }
 
 function openCreateCustomTask() {
+  if (currentRole === 'individual') { openCreateTaskIndividual(); return; }
   openModal(`<div style="text-align:center;padding:10px 0 4px;">
     <div style="font-size:44px;margin-bottom:12px;">🔐</div>
     <div style="font-size:18px;font-weight:800;color:var(--text);margin-bottom:6px;">Admin Only</div>
@@ -11630,6 +12524,15 @@ function _openCtPanel(isAdmin) {
         <textarea id="${isAdmin?'tDesc':'ptDesc'}" style="display:none;"></textarea>
       </div>
 
+      <!-- Add Participants (Individual role only — see openAddParticipantsPage()) -->
+      ${!isAdmin ? `
+      <div class="ct-field-wrap">
+        <div class="ct-desc-row" onclick="openAddParticipantsPage()">
+          <span class="ct-desc-preview${(window._ctParticipants&&window._ctParticipants.length)?' has-text':''}" id="ctParticipantsPreview">${(window._ctParticipants&&window._ctParticipants.length) ? `${window._ctParticipants.length} participant${window._ctParticipants.length>1?'s':''} added` : 'Add Participants (optional)'}</span>
+          <svg class="ct-chevron" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+        </div>
+      </div>` : ''}
+
       <div class="ct-divider"></div>
 
       <!-- Color + Icon row -->
@@ -11707,6 +12610,7 @@ function closeCt() {
   if(p) p.classList.remove('open');
   if(ov) ov.classList.remove('visible');
   setTimeout(()=>document.getElementById('ctWrapper')?.remove(), 320);
+  document.getElementById('apWrapper')?.remove(); // in case Add Participants was left open
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -12851,7 +13755,10 @@ async function saveCustomTask() {
   const title = document.getElementById('ptTitle')?.value.trim();
   if (!title) { showToast('Title required', 'error'); return; }
   const pts = parseInt(document.getElementById('ptPoints')?.value) || 0;
-  db.tasks.unshift({
+  // Build checklist — same as admin's saveTask(), just missing here before
+  // (see the BUG FIX note below for why that mattered).
+  const checklist = (window._ctChecklistItems||[]).filter(i=>i.text.trim()).map(i=>({id:i.id,text:i.text.trim(),done:false}));
+  const newTask = {
     id:'pt-'+Date.now(), title,
     description: document.getElementById('ptDesc')?.value || '',
     dueDate: document.getElementById('ptDue')?.value || '',
@@ -12862,11 +13769,75 @@ async function saveCustomTask() {
     createdBy: currentUser.id, assignedTo: currentUser.id,
     createdDate: today(), createdAt: Date.now(),
     points: Math.max(0, Math.min(pts, 9999)), approvalRequired: false,
-    isTemplate: false
-  });
+    isTemplate: false,
+    // BUG FIX: this object never included the icon/color the user actually
+    // picked in the create-task panel (_ctIconSvg/_ctIconColor, set live by
+    // ctPickIcon()/ctPickColor()) — saveTask() (admin's equivalent function)
+    // already saves these, but this self-create path (used by Individual
+    // via openCreateTaskIndividual()/_openCtPanel(false)) silently dropped
+    // them, so every saved task fell back to _habitGetIconSvg()'s
+    // category-based default icon instead of the one shown in the picker.
+    iconSvg:    _ctIconSvg   || null,
+    iconColor:  _ctIconColor || null,
+    checklist:  checklist.length ? checklist : null,
+    symbol:     window._ctSymbol || null,
+    attachmentName: window._ctAttachName || null,
+  };
+  db.tasks.unshift(newTask);
+  markDirty();
+
+  const participants = window._ctParticipants || [];
   closeCt(); _repeatConfig = null;
-  await saveAndRefresh('Task created!', 'internTasks');
+  window._ctChecklistItems = []; window._ctAttachName = null; window._ctSymbol = null;
+  window._ctParticipants = [];
+
+  // PERF FIX: this used to `await` participant delivery (a fbRootGet, then
+  // — per participant, sequentially — fbRootGet+fbRootPut for their task
+  // list, fbRootGet+fbRootPut for their notifications, plus an FCM enqueue)
+  // and THEN await saveAndRefresh()'s own "Saving to server..." full
+  // fbWrite(db), all before the create-task panel would even close. With
+  // 2-3 participants that's 10+ sequential network round trips blocking
+  // the UI for a simple "create a task" tap. The task is already applied
+  // to local `db` above, so there's nothing left that NEEDS the network
+  // before the person sees it — close/toast/navigate happen instantly off
+  // local state, and the actual Firebase sync (participant delivery +
+  // saveDB) happens after, in the background. Same trade-off every other
+  // optimistic-UI flow in this app already makes: if connectivity drops
+  // before the background sync finishes, the task exists locally until the
+  // next successful sync, same as any other unsynced local edit.
+  showToast('Task created!', 'success');
+  if (currentPage) await navigateTo(currentPage);
+  _finishTaskSaveInBackground(newTask, participants);
 }
+
+// The network half of saveCustomTask() — split out so the UI feedback
+// above never has to wait on it. See the PERF FIX comment there.
+async function _finishTaskSaveInBackground(newTask, participants) {
+  if (participants.length) {
+    try {
+      const allUsers = await fbRootGet('users') || {};
+      newTask.sharedToUsers = [];
+      for (const p of participants) {
+        const rec = allUsers[p.id];
+        if (!rec || !rec.orgId) continue; // account gone/misconfigured — skip rather than fail the whole save
+        const name = rec.name || p.name, email = rec.email || p.email || '';
+        await _deliverTaskCopyToUser(newTask, p.id, rec.orgId, name);
+        newTask.sharedToUsers.push({ id: p.id, name, email });
+        _recordShareContact(p.id, name, email);
+      }
+    } catch (e) {
+      console.error('[addParticipants] delivery failed', e);
+      showToast('Task saved, but sharing with participants failed — check your connection', 'error');
+    }
+  }
+  try {
+    await saveDB();
+  } catch (e) {
+    console.error('[saveCustomTask] background sync failed', e);
+    showToast('Task saved on this device, but syncing failed — check your connection', 'error');
+  }
+}
+
 
 
 // ╔══════════════════════════════════════════════════╗
@@ -13049,26 +14020,12 @@ function renderInternLeaderboard(ca) {
   ca.innerHTML = `
     <div class="lb2-page">
       <div class="lb2-header">
-        <button type="button" class="lb2-hamburger" onclick="navigateTo('internDashboard')" aria-label="Back">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
-        </button>
-        <div class="lb2-header-titles">
-          <button type="button" class="lb2-period-btn" onclick="toggleLbPeriodMenu(event)">
-            <span>${period === 'week' ? 'This Week' : 'This Month'}</span>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-          </button>
-          <div id="lbPeriodMenu" class="lb-period-menu" style="display:none;">
-            <button type="button" onclick="setLbPeriod('week')">This Week</button>
-            <button type="button" onclick="setLbPeriod('month')">This Month</button>
-          </div>
-          <div class="lb2-countdown">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-            ${countdownLabel}
-          </div>
-        </div>
+        <!-- Title row removed per request — header now shows only the
+             trophy/league row, still part of this sticky header so it
+             stays fixed in place; its existing border-bottom is the grey
+             divider line right after it. -->
+        <div class="lb2-trophy-row">${trophyRowHtml}</div>
       </div>
-
-      <div class="lb2-trophy-row">${trophyRowHtml}</div>
 
       <div class="lb2-list">
         ${rows.map((r, idx) => {
@@ -13315,7 +14272,7 @@ function renderInternRewards(ca) {
       <span class="rws-section-title">Active Rewards</span>
     </div>
     ${shown.length===0
-      ? `<div class="rw-empty"><div style="font-size:48px;margin-bottom:12px;">🛍️</div><div class="rw-empty-title">No rewards yet</div><div class="rw-empty-sub">Admin hasn't added any rewards</div></div>`
+      ? `<div class="rw-empty"><div style="font-size:48px;margin-bottom:12px;">🛍️</div><div class="rw-empty-title">No rewards yet</div><div class="rw-empty-sub">${currentRole==='individual' ? 'Tap the + button or ⋮ → Manage to add one' : "Admin hasn't added any rewards"}</div></div>`
       : `<div class="rws-list">
           ${shown.map((r,i,arr)=>{
             const cat=CATS[r.category]||CATS.physical;
@@ -13448,23 +14405,46 @@ function renderInternRewards(ca) {
   const isSubTab = tab !== 'store';
 
   ca.innerHTML = `
-    <div class="rws-page-header">
-      <button class="rws-back-btn" onclick="${tab === 'history' ? "navigateTo('internDashboard')" : isSubTab ? "window.rwTab='store';renderInternRewards(document.getElementById('contentArea'))" : "navigateTo('internDashboard')"}">
+    <div class="rws-page">
+    <div class="rws-page-header${(tab === 'history' || tab === 'store') ? ' rws-page-header-line' : ''}">
+      ${tab === 'history' ? `
+      <button class="rws-back-btn" onclick="window.rwTab='store';renderInternRewards(document.getElementById('contentArea'))">
         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
       </button>
       <span class="rws-page-title">${tabTitle}</span>
+      <div style="width:36px;"></div>
+      ` : `
+      <span class="rws-page-title rws-page-title-left">${tabTitle}</span>
       ${isSubTab ? `<div style="width:36px;"></div>` : `
       <div style="position:relative;">
         <button class="arw-dots-btn" onclick="irwToggleMenu()">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>
         </button>
         <div class="arw-dropdown" id="irwDropdown" style="display:none;">
+          ${currentRole === 'individual' ? `
+          <!-- Individual gets the full admin+intern menu: the "Admin UI" Redeemed
+               list (adminRewards' approvals_all tab) instead of the plain intern
+               read-only history, because it has the Approve/Reject actions
+               Individual needs to self-approve their own pending redemptions —
+               see rwRedeemNow()'s "Approve it from the ⋮ menu" toast. Manage and
+               Settings are the same admin-only screens reused as-is (see
+               renderAdminRewards()); their back button already routes back to
+               this page for currentRole==='individual' (see the arw-back-btn
+               onclick further down). -->
+          <button class="arw-dd-item" onclick="irwToggleMenu();window.adminRwTab='approvals_all';navigateTo('adminRewards')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg> Redeemed</button>
+          <button class="arw-dd-item" onclick="irwToggleMenu();window.rwTab='wallet';renderInternRewards(document.getElementById('contentArea'))"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg> Wallet</button>
+          <button class="arw-dd-item" onclick="irwToggleMenu();window.adminRwTab='manage';navigateTo('adminRewards')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Manage</button>
+          <button class="arw-dd-item" onclick="irwToggleMenu();window.adminRwTab='setup';navigateTo('adminRewards')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg> Settings</button>
+          ` : `
           <button class="arw-dd-item" onclick="irwToggleMenu();window.rwTab='mine';renderInternRewards(document.getElementById('contentArea'))"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg> Redeemed</button>
           <button class="arw-dd-item" onclick="irwToggleMenu();window.rwTab='wallet';renderInternRewards(document.getElementById('contentArea'))"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg> Wallet</button>
+          `}
         </div>
       </div>`}
+      `}
     </div>
-    <div class="rw-body" style="padding:14px 14px 32px;">${tabBody}</div>`;
+    <div class="rw-body" style="padding:14px 14px 32px;">${tabBody}</div>
+    </div>`;
   // Force-hide footer and fab on this page
   const _nav = document.getElementById('mobBottomNav');
   const _fab = document.getElementById('mobFab');
@@ -15418,6 +16398,7 @@ function _renderHabitCreatePanel() {
       </div>
       <div class="ct-color-strip" id="hColorStrip">${colorSwatches}</div>
       <div class="ct-icon-grid" id="hIconGrid">${iconGrid}</div>
+      ${currentRole === 'individual' ? '' : `
       <div class="ct-divider"></div>
       <!-- Assign -->
       <div class="ct-section" style="padding:12px 20px;">
@@ -15429,7 +16410,7 @@ function _renderHabitCreatePanel() {
           <div class="pick-all-row"><span style="font-size:11px;color:var(--text2);">Select interns</span><button onclick="_hToggleAll(true)">All</button><button onclick="_hToggleAll(false)">Clear</button></div>
           ${interns.map(i=>`<label data-name="${i.name.toLowerCase()}"><input type="checkbox" class="hInternCb" value="${i.id}" onchange="_hUpdateCount()"> ${sanitize(i.name)}</label>`).join('')}
         </div>
-      </div>
+      </div>`}
       <div class="ct-divider"></div>
       <!-- XP -->
       <div class="ct-field-wrap" style="padding:12px 20px;">
@@ -15571,8 +16552,16 @@ function _hDateLbl(input, lblId, emptyText='') {
 async function saveHabit() {
   const name = document.getElementById('hName')?.value.trim();
   if (!name) { showToast('Habit name required', 'error'); return; }
-  const selectedIds = [...document.querySelectorAll('.hInternCb:checked')].map(cb=>_parseInternId(cb.value));
-  if (!selectedIds.length) { showToast('Assign to at least one intern', 'error'); return; }
+  let selectedIds;
+  if (currentRole === 'individual') {
+    // No Assign To section is rendered for individual (see
+    // _renderHabitCreatePanel()) — this habit is always just for
+    // themselves.
+    selectedIds = [currentUser.id];
+  } else {
+    selectedIds = [...document.querySelectorAll('.hInternCb:checked')].map(cb=>_parseInternId(cb.value));
+    if (!selectedIds.length) { showToast('Assign to at least one intern', 'error'); return; }
+  }
   const xpRaw = parseInt(document.getElementById('hXP')?.value);
   const xp = (isFinite(xpRaw) && xpRaw > 0) ? xpRaw : 5;
   const st = _habitCreateState;
@@ -16980,6 +17969,7 @@ function renderAdminRewards(ca) {
   const interns   = INTERNS.filter(i=>i.id!==99);
   const storeRw   = db.rewards||[];
   const allRdm    = (db.redemptions||[]).sort((a,b)=>b.createdAt-a.createdAt);
+  const myWallet  = _getWallet(currentUser.id); // Individual role: this page's own personal wallet
   const rate      = settings.xpPerCoin || 10;
   const filterMonth = window.adminRwMonth || _thisMonth();
 
@@ -17044,7 +18034,7 @@ function renderAdminRewards(ca) {
   ca.innerHTML=`
   <div class="arw-page">
     <div class="arw-header">
-      <button class="arw-back-btn" onclick="${isSubPage ? "window.adminRwTab=null;renderAdminRewards(document.getElementById('contentArea'))" : "navigateTo('adminDashboard')"}">
+      <button class="arw-back-btn" onclick="${isSubPage ? (currentRole==='individual' ? "window.adminRwTab=null;navigateTo('internRewards')" : "window.adminRwTab=null;renderAdminRewards(document.getElementById('contentArea'))") : (currentRole==='admin' ? "navigateTo('adminDashboard')" : "navigateTo('internDashboard')")}">
         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
       </button>
       <div class="arw-header-title">${window.adminRwTab==='manage' ? 'Manage Rewards' : window.adminRwTab==='setup' ? 'Settings' : window.adminRwTab==='approvals_all' ? 'Redeemed Rewards' : window.adminRwTab==='wallets' ? 'Trainee Wallets' : 'Reward'}</div>
@@ -17311,6 +18301,30 @@ function renderAdminRewards(ca) {
       ` : `
 
       <!-- OVERVIEW PURPLE CARD -->
+      ${currentRole === 'individual' ? `
+      <div class="arw-ov-card">
+        <div class="arw-ov-header">
+          <span class="arw-ov-title">My Rewards</span>
+        </div>
+        <div class="arw-ov-grid">
+          <div class="arw-ov-stat">
+            <div><div class="arw-ov-stat-lbl">Balance</div><div class="arw-ov-stat-val">🪙 ${myWallet.balance.toLocaleString()}</div></div>
+            <div class="arw-ov-stat-icon" style="background:#fff;color:#22c55e;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg></div>
+          </div>
+          <div class="arw-ov-stat">
+            <div><div class="arw-ov-stat-lbl">Earned</div><div class="arw-ov-stat-val">🪙 ${myWallet.totalEarned.toLocaleString()}</div></div>
+            <div class="arw-ov-stat-icon" style="background:#fff;color:#6c5ce7;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
+          </div>
+          <div class="arw-ov-stat">
+            <div><div class="arw-ov-stat-lbl">Spent</div><div class="arw-ov-stat-val">🪙 ${myWallet.totalSpent.toLocaleString()}</div></div>
+            <div class="arw-ov-stat-icon" style="background:#fff;color:#ef4444;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg></div>
+          </div>
+          <div class="arw-ov-stat">
+            <div><div class="arw-ov-stat-lbl">Active Rewards</div><div class="arw-ov-stat-val">${activeRw}</div></div>
+            <div class="arw-ov-stat-icon" style="background:#fff;color:#f59e0b;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div>
+          </div>
+        </div>
+      </div>` : `
       <div class="arw-ov-card">
         <div class="arw-ov-header">
           <span class="arw-ov-title">Overview</span>
@@ -17339,7 +18353,7 @@ function renderAdminRewards(ca) {
             <div class="arw-ov-stat-icon" style="background:#fff;"><img src="https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/svg/1fa99.svg" width="26" height="26"></div>
           </div>
         </div>
-      </div>
+      </div>`}
 
       <!-- REDEMPTIONS OVERVIEW -->
       <div class="arw-section-row">
@@ -17393,13 +18407,31 @@ function renderAdminRewards(ca) {
             }).join('')}
       </div>
 
-      <!-- TOP REWARDS -->
+      <!-- TOP REWARDS (Individual: Active Rewards, each with a Redeem
+           button, instead of stats-only cards — see the Individual role
+           spec: "display rewards ... in active reward there would be
+           redeem button") -->
       <div class="arw-section-row" style="margin-top:20px;">
-        <span class="arw-section-title">Top Rewards</span>
-        <span class="arw-view-all" onclick="window.adminRwTab='manage';renderAdminRewards(document.getElementById('contentArea'))">View All</span>
+        <span class="arw-section-title">${currentRole==='individual' ? 'Active Rewards' : 'Top Rewards'}</span>
+        <span class="arw-view-all" onclick="window.adminRwTab='manage';renderAdminRewards(document.getElementById('contentArea'))">${currentRole==='individual' ? 'Manage' : 'View All'}</span>
       </div>
       <div class="arw-top-scroll">
-        ${topRw.length===0
+        ${currentRole==='individual' ? (
+          storeRw.filter(r=>r.active!==false).length===0
+            ? '<div style="font-size:13px;color:var(--text3);padding:16px 0;">No rewards yet — create one with the + button</div>'
+            : storeRw.filter(r=>r.active!==false).map(r=>{
+                const cat=CATS[r.category]||CATS.physical;
+                const thumb=r.imageData?'<img src="'+r.imageData+'" class="arw-top-img">'
+                  :'<div class="arw-top-img arw-top-svg" style="background:'+cat.bg+';color:'+cat.color+';">'+cat.emoji+'</div>';
+                const afford = myWallet.balance >= r.coinCost;
+                return '<div class="arw-top-card">'+thumb
+                  +'<div class="arw-top-name">'+sanitize(r.name)+'</div>'
+                  +'<div class="arw-top-coins">'+r.coinCost.toLocaleString()+' 🪙</div>'
+                  +'<button class="rwd-redeem-btn'+(afford?'':' rwd-redeem-disabled')+'" '+(afford?'':'disabled')+' onclick="event.stopPropagation();rwRedeemNow(\''+r.id+'\')" style="margin-top:8px;width:100%;">Redeem</button>'
+                  +'</div>';
+              }).join('')
+        ) : (
+          topRw.length===0
           ? '<div style="font-size:13px;color:var(--text3);padding:16px 0;">No rewards yet</div>'
           : topRw.map(r=>{
               const cat=CATS[r.category]||CATS.physical;
@@ -17412,7 +18444,8 @@ function renderAdminRewards(ca) {
                 +'<div class="arw-top-rdm">'+cnt+' redemptions</div>'
                 +'<div class="arw-top-coins">'+coins.toLocaleString()+' 🪙</div>'
                 +'</div>';
-            }).join('')}
+            }).join('')
+        )}
       </div>
 
     `}
@@ -17557,7 +18590,8 @@ function arwmFilter() {
     const editIcon=`<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`;
     const toggleIcon=isActive?`<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`:`<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
     const delIcon=`<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>`;
-    return `<div class="arwm-row${isLast?' arwm-row-last':''}" onclick="rwOpenDetail('${r.id}')" style="cursor:pointer;">${thumb}<div class="arwm-row-body"><div class="arwm-row-name">${sanitize(r.name)}</div><span class="arwm-tag" style="background:${cat2.bg};color:${cat2.color};">${cat2.label}</span><div class="arwm-row-coins">${r.coinCost.toLocaleString()} Coins</div></div><div class="arwm-row-right" onclick="event.stopPropagation()"><span class="arwm-status-tag" style="background:${isActive?'rgba(34,197,94,.12)':'rgba(239,68,68,.1)'};color:${isActive?'#22c55e':'#ef4444'};">${isActive?'Active':'Inactive'}</span><div style="position:relative;"><button class="arwm-dots-btn" onclick="arwmToggleMenu('${r.id}',event)"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg></button><div class="arwm-menu" id="arwm-menu-${r.id}" style="display:none;"><button class="arwm-menu-item" onclick="arwmCloseMenus();rwAdminEditReward('${r.id}')">${editIcon} Edit</button><button class="arwm-menu-item" onclick="arwmCloseMenus();arwmToggleActive('${r.id}',${isActive})">${toggleIcon} ${isActive?'Mark Inactive':'Mark Active'}</button><button class="arwm-menu-item arwm-menu-danger" onclick="arwmCloseMenus();rwAdminDeleteReward('${r.id}')">${delIcon} Delete</button></div></div></div></div>`;
+    const redeemBtn = (currentRole==='individual' && isActive) ? `<button class="arwm-redeem-btn" onclick="event.stopPropagation();rwRedeemNow('${r.id}')" style="margin-right:6px;padding:6px 12px;border-radius:8px;border:none;background:#6c5ce7;color:#fff;font-size:12px;font-weight:700;cursor:pointer;">Redeem</button>` : '';
+    return `<div class="arwm-row${isLast?' arwm-row-last':''}" onclick="rwOpenDetail('${r.id}')" style="cursor:pointer;">${thumb}<div class="arwm-row-body"><div class="arwm-row-name">${sanitize(r.name)}</div><span class="arwm-tag" style="background:${cat2.bg};color:${cat2.color};">${cat2.label}</span><div class="arwm-row-coins">${r.coinCost.toLocaleString()} Coins</div></div><div class="arwm-row-right" onclick="event.stopPropagation()">${redeemBtn}<span class="arwm-status-tag" style="background:${isActive?'rgba(34,197,94,.12)':'rgba(239,68,68,.1)'};color:${isActive?'#22c55e':'#ef4444'};">${isActive?'Active':'Inactive'}</span><div style="position:relative;"><button class="arwm-dots-btn" onclick="arwmToggleMenu('${r.id}',event)"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg></button><div class="arwm-menu" id="arwm-menu-${r.id}" style="display:none;"><button class="arwm-menu-item" onclick="arwmCloseMenus();rwAdminEditReward('${r.id}')">${editIcon} Edit</button><button class="arwm-menu-item" onclick="arwmCloseMenus();arwmToggleActive('${r.id}',${isActive})">${toggleIcon} ${isActive?'Mark Inactive':'Mark Active'}</button><button class="arwm-menu-item arwm-menu-danger" onclick="arwmCloseMenus();rwAdminDeleteReward('${r.id}')">${delIcon} Delete</button></div></div></div></div>`;
   }).join('');
   // re-focus search
   const s=document.getElementById('arwmSearch');
@@ -17729,8 +18763,11 @@ function _rwForm(rewardId) {
   const r = rewardId ? (db.rewards||[]).find(x=>x.id===rewardId) : null;
   const ca = document.getElementById('contentArea'); if(!ca) return;
 
-  // Hide header/footer
-  ['mainTopbar','mobBottomNav','mobFab','mobAdminBottomNav','adminMobFab'].forEach(id=>{
+  // Hide header/footer — BUG FIX: this list never included
+  // mobIndividualBottomNav, so Individual's bottom nav stayed visible on
+  // top of the Reward Creation Screen (this list predates the Individual
+  // role entirely).
+  ['mainTopbar','mobBottomNav','mobFab','mobAdminBottomNav','adminMobFab','mobIndividualBottomNav'].forEach(id=>{
     const el=document.getElementById(id); if(el) el.style.display='none';
   });
 
@@ -17749,7 +18786,7 @@ function _rwForm(rewardId) {
   ca.innerHTML = `
   <div class="rwf-page">
     <div class="rwf-header">
-      <button class="arw-back-btn" onclick="window.adminRwTab='manage';renderAdminRewards(document.getElementById('contentArea'))">
+      <button class="arw-back-btn" onclick="window.adminRwTab='manage';(currentPage!=='adminRewards')?navigateTo('adminRewards'):renderAdminRewards(document.getElementById('contentArea'))">
         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
       </button>
       <div class="rwf-header-title">Create / Edit Reward</div>
@@ -17831,7 +18868,13 @@ function _rwForm(rewardId) {
         </div>
       </div>
 
-      <!-- To / Assignee — custom checklist with search -->
+      <!-- To / Assignee — custom checklist with search. Not rendered for
+           Individual: there's no roster to assign to, and rwSaveReward()
+           already defaults to assignees:['all'] when this section is
+           entirely absent from the DOM (its rwfChkAll lookup comes back
+           null, falls through to an empty checked-list, which it treats
+           the same as "All"). -->
+      ${currentRole === 'individual' ? '' : `
       <div class="rwf-section">
         <div class="rwf-label">To / Assignee <span class="rwf-req">*</span></div>
         <div class="rwf-assignee-box">
@@ -17849,7 +18892,7 @@ function _rwForm(rewardId) {
           </div>
         </div>
         <div class="rwf-hint">Select one or more trainees</div>
-      </div>
+      </div>`}
 
       <!-- Coins -->
       <div class="rwf-section">
@@ -18047,7 +19090,19 @@ async function rwSaveReward(rewardId) {
       pushInternNotifBroadcast(assignees, { type:'reward_created', title:'New Reward Available', body: name });
     }
     window.adminRwTab = 'manage';
-    renderAdminRewards(document.getElementById('contentArea'));
+    // Individual can reach this save from the FAB while still on
+    // internRewards (currentPage never became 'adminRewards') — a plain
+    // renderAdminRewards() call would swap in the Manage list's markup
+    // without updating currentPage/data-page, leaving nav-bar visibility
+    // and the FAB's page-scoped CSS override out of sync with what's on
+    // screen. navigateTo() keeps everything in sync; a real admin (already
+    // on adminRewards when they open this form) can keep the cheaper direct
+    // re-render.
+    if (currentPage !== 'adminRewards') {
+      navigateTo('adminRewards');
+    } else {
+      renderAdminRewards(document.getElementById('contentArea'));
+    }
   } catch(e) { showToast('❌ Save failed: ' + e.message); }
 }
 
@@ -18082,8 +19137,10 @@ function rwOpenDetail(rewardId) {
   const afford  = wallet ? wallet.balance >= r.coinCost : false;
   const need    = wallet ? Math.max(0, r.coinCost - wallet.balance) : 0;
 
-  // Hide header/footer
-  ['mainTopbar','mobBottomNav','mobFab','mobAdminBottomNav','adminMobFab'].forEach(id=>{
+  // Hide header/footer — same missing-mobIndividualBottomNav bug as the
+  // Reward Creation Screen (this page is reached via a direct DOM swap,
+  // bypassing navigateTo()/updateBadges(), so nothing else hides it).
+  ['mainTopbar','mobBottomNav','mobFab','mobAdminBottomNav','adminMobFab','mobIndividualBottomNav'].forEach(id=>{
     const el=document.getElementById(id); if(el) el.style.display='none';
   });
 
@@ -18233,7 +19290,7 @@ async function rwRedeemNow(rewardId) {
       fbPut('redemptions',db.redemptions),
       fbPut('rewards',db.rewards),
     ]);
-    showToast('⏳ Sent! Awaiting admin approval');
+    showToast(currentRole==='individual' ? '⏳ Sent! Approve it from the ⋮ menu → Redeemed to complete the redemption' : '⏳ Sent! Awaiting admin approval');
     pushAdminNotif({ type:'reward_redeemed', title:'Reward Redeemed', body:`${currentUser.name} redeemed "${r.name}"`, internId:id });
     navigateTo('internRewards');
   }catch(e){

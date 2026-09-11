@@ -2477,6 +2477,23 @@ body{font-family:'DM Sans','Outfit',-apple-system,BlinkMacSystemFont,sans-serif;
 .modal-close:hover{background:var(--border);}
 .modal-actions{display:flex;gap:7px;margin-top:18px;justify-content:flex-end;}
 
+/* SHARE TASK (Individual role) */
+.share-results{display:flex;flex-direction:column;gap:6px;margin-bottom:6px;min-height:2px;}
+.share-empty{font-size:12.5px;color:var(--text3);padding:10px 2px;text-align:center;}
+.share-already-hd{font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin:14px 0 8px;}
+.share-already-list{display:flex;flex-direction:column;gap:6px;}
+.share-user-row{display:flex;align-items:center;gap:10px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:9px 11px;}
+.share-user-avatar{width:34px;height:34px;flex:0 0 34px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;}
+.share-user-info{flex:1;min-width:0;}
+.share-user-name{font-size:13.5px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.share-user-email{font-size:11.5px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.share-btn-mini{padding:6px 14px;font-size:12.5px;flex:0 0 auto;}
+
+/* ADD PARTICIPANTS (task-creation picker) */
+.ap-chips-row{display:flex;flex-wrap:wrap;gap:6px;padding:0 20px 4px;}
+.ap-chip{display:inline-flex;align-items:center;gap:6px;background:var(--accent);color:#fff;font-size:12.5px;font-weight:600;border-radius:20px;padding:5px 8px 5px 12px;}
+.ap-chip-x{background:rgba(255,255,255,.25);border:none;color:#fff;width:16px;height:16px;border-radius:50%;font-size:9px;line-height:1;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0;}
+
 /* SECTION TITLE */
 .section-title{font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--text2);margin-bottom:10px;margin-top:2px;display:flex;align-items:center;gap:7px;}
 .section-title::after{content:'';flex:1;height:1px;background:var(--border);}
@@ -3059,35 +3076,51 @@ hr{border:none;border-top:1px solid var(--border);margin:14px 0;}
 #mainScreen:not(.active) .duo-nav { display:none !important; }
 
 /* ══════════════════════════════════════════════
-   FAB — V-Notch positioned
-   bottom: 45px  →  FAB center sits 8px inside
-   the nav bar (inside the V), top diamond point
-   protrudes 17px above the bar.
+   FAB — floating, suspended above the nav bar,
+   right-aligned (not centered).
+   (the old "V-Notch inside the bar" cutout was
+   removed when the nav went flat — see the
+   ".duo-nav::before { display:none }" rule below —
+   so the FAB now needs to sit ABOVE the bar's top
+   edge with a clear gap underneath it, instead of
+   overlapping into the bar, to get the "hovering
+   diamond" look shown in the reference mockup.
+   Nav bar is 64px tall; lifting the FAB's bottom
+   offset to 64px + gap clears the bar entirely.
+   Color rides on var(--accent), which the codebase
+   already re-points to var(--brand) (purple) on the
+   Tasks page (see "body[data-page="internTasks"]
+   { --accent: var(--brand); }" further down) and
+   leaves as orange everywhere else (Rewards, etc.)
+   — so the FAB automatically goes purple on
+   Tasks/Habits and stays orange on Rewards, no
+   separate per-page override needed here.
    ══════════════════════════════════════════════ */
 .mob-fab {
   display: none;
   position: fixed;
-  bottom: calc(8px + env(safe-area-inset-bottom)); /* Centered in 64px nav: (64-56)/2 = 4px, but 8px looks better */
-  left: 50%;
-  transform: translateX(-50%) rotate(45deg);
+  bottom: calc(64px + env(safe-area-inset-bottom) + 28px); /* fully clears the 64px nav bar, leaving a floating gap */
+  right: 30px;
+  left: auto;
+  transform: rotate(45deg);
   width: 56px; height: 56px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #e85d26, #ff8c5a);
+  background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 70%, white 30%));
   border: none;
-  box-shadow: 0 4px 12px rgba(232,93,38,.4);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--accent) 40%, transparent);
   cursor: pointer;
   z-index: 202;
   align-items: center;
   justify-content: center;
-  transition: transform .15s, box-shadow .15s;
+  transition: transform .15s, box-shadow .15s, background .2s;
 }
-.mob-fab:hover { 
-  transform: translateX(-50%) rotate(45deg) scale(1.05);
-  box-shadow: 0 6px 16px rgba(232,93,38,.5);
+.mob-fab:hover {
+  transform: rotate(45deg) scale(1.05);
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--accent) 50%, transparent);
 }
-.mob-fab:active { 
-  transform: translateX(-50%) rotate(45deg) scale(.95); 
-  box-shadow: 0 2px 10px rgba(232,93,38,.35); 
+.mob-fab:active {
+  transform: rotate(45deg) scale(.95);
+  box-shadow: 0 2px 10px color-mix(in srgb, var(--accent) 35%, transparent);
 }
 .fab-icon-wrap { transform: rotate(-45deg); display: flex; align-items: center; justify-content: center; }
 
@@ -3169,6 +3202,24 @@ hr{border:none;border-top:1px solid var(--border);margin:14px 0;}
    leaving a gap in the middle. */
 #mobFab { display: none !important; }
 #mobBottomNav .duo-nav-fab-placeholder { display: none; }
+/* Individual role: the FAB is real here (Create Task/Habit/Reward — see
+   openFabSheet() in script.js), unlike the plain intern nav above where
+   it's just a disabled stub. Re-enable it, but ONLY on the pages it should
+   actually show on — Tasks (habits live as a tab inside this same page,
+   there's no separate "habits" page) and Rewards ('internRewards' — the
+   "Reward Store" page, individualNav's Rewards destination in script.js).
+   Deliberately excluded on Dashboard/Home per the latest spec ("only
+   display + icon in task, habit and reward page"). Needs !important + the
+   extra attribute selector to out-rank the unconditional hide rule right
+   above (same specificity fight, higher specificity wins) — this also beats
+   renderInternRewards()'s own inline `mobFab.style.display='none'` (see
+   script.js), since a stylesheet !important always wins over inline styles. */
+body[data-role="individual"][data-page="internTasks"] #mobFab,
+body[data-role="individual"][data-page="internRewards"] #mobFab { display: flex !important; }
+body[data-role="individual"] #mobBottomNav .duo-nav-fab-placeholder { display: block; }
+/* Note: #mobIndividualBottomNav no longer contains a .duo-nav-fab-placeholder
+   element at all (removed from index.html) — the FAB floats independently in
+   the bottom-right corner now, so its 4 nav buttons just space out evenly. */
 .duo-nav-btn {
   flex: 1;
   display: flex;
@@ -3240,6 +3291,17 @@ hr{border:none;border-top:1px solid var(--border);margin:14px 0;}
 #mobBottomNav .duo-nav-btn.active .duo-nav-pill {
   color: var(--brand);
 }
+/* Individual nav: Home and Profile have no page-scoped --accent override
+   (unlike Tasks/Rewards, which repoint --accent to their own theme color —
+   see body[data-page="internTasks"|"internRewards"] further down), so their
+   active tab fell back to the hardcoded global orange instead of the app's
+   actual theme color. Scoped to just those two pages so Tasks/Rewards keep
+   their own already-correct colors. */
+body[data-page="internDashboard"] #mobIndividualBottomNav .duo-nav-btn.active .duo-nav-pill,
+body[data-page="internProfile"] #mobIndividualBottomNav .duo-nav-btn.active .duo-nav-pill,
+body[data-page="internSettings"] #mobIndividualBottomNav .duo-nav-btn.active .duo-nav-pill {
+  color: var(--brand);
+}
 .duo-nav-btn.active .duo-nav-label {
   opacity: 1;
   font-weight: 700;
@@ -3276,6 +3338,11 @@ hr{border:none;border-top:1px solid var(--border);margin:14px 0;}
 }
 [data-theme="dark"] #mobBottomNav .duo-nav-btn.active .duo-nav-pill {
   color: var(--brand-light); /* intern nav only */
+}
+[data-theme="dark"] body[data-page="internDashboard"] #mobIndividualBottomNav .duo-nav-btn.active .duo-nav-pill,
+[data-theme="dark"] body[data-page="internProfile"] #mobIndividualBottomNav .duo-nav-btn.active .duo-nav-pill,
+[data-theme="dark"] body[data-page="internSettings"] #mobIndividualBottomNav .duo-nav-btn.active .duo-nav-pill {
+  color: var(--brand-light);
 }
 
 /* Legacy badge compat */
@@ -7239,10 +7306,23 @@ hr{border:none;border-top:1px solid var(--border);margin:14px 0;}
 /* ══════════════════════════════════════════════════════
    INTERN SETTINGS PAGE
    ══════════════════════════════════════════════════════ */
+/* BUG FIX: this relied on the shared/ambient #contentArea scroll instead of
+   owning its own scroll context (unlike .np2-wrap/.arw-page, which use this
+   same fixed-overlay-with-sticky-header pattern reliably) — giving it its
+   own single, unambiguous scroll owner removes any doubt about whether
+   .isettings-header's position:sticky (below) actually has something
+   consistent to pin against. */
 .isettings-wrap {
-  min-height: 100%;
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  z-index: 49;
   background: var(--bg);
 }
+/* Same gradient as Home/Tasks/Profile/Rewards/Leaderboard, light mode only. */
+:root:not([data-theme="dark"]) .isettings-wrap { background: linear-gradient(160deg, #fbeee9 0%, #f3e6ee 35%, #e9e6f5 65%, #e1e4f5 100%); }
 .isettings-header {
   display: flex;
   align-items: center;
@@ -7254,6 +7334,9 @@ hr{border:none;border-top:1px solid var(--border);margin:14px 0;}
   top: 0;
   z-index: 10;
 }
+/* Same blended-header treatment as Profile/Rewards/Leaderboard — no solid
+   white bar/border on top of the gradient. */
+:root:not([data-theme="dark"]) .isettings-header { background: #fbeee9; border-bottom: 1px solid #d1d1d1; }
 .isettings-back {
   width: 32px; height: 32px;
   background: none; border: none;
@@ -7276,7 +7359,12 @@ hr{border:none;border-top:1px solid var(--border);margin:14px 0;}
   padding: 4px 0;
 }
 .isettings-body {
-  padding: 20px 16px 40px;
+  /* .isettings-wrap now bypasses #contentArea (position:fixed, see above),
+     which used to give it some bottom clearance automatically — the bottom
+     nav stays visible on this page (unlike Rewards/Leaderboard), so add
+     that clearance explicitly now, same idea as .np2-wrap's own
+     padding-bottom for the same reason. */
+  padding: 20px 16px calc(40px + 64px + env(safe-area-inset-bottom));
 }
 .isettings-section-lbl {
   font-size: 13px;
@@ -8308,6 +8396,10 @@ hr{border:none;border-top:1px solid var(--border);margin:14px 0;}
 /* ══ PAGE WRAPPER ═══════════════════════════════════════════════ */
 /* ── Tasks/Habits swipeable container (Tasks tab shows both pages) ── */
 .thp-outer { display:flex; flex-direction:column; width:100%; }
+/* BUG FIX: the date-strip/performance header (#thpSharedHeader > .hd-wrap)
+   never had position:sticky, so it scrolled away with the task/habit list
+   underneath it instead of staying pinned at the top of the page. */
+#thpSharedHeader { position: sticky; top: 0; z-index: 15; }
 .thp-swipe-wrap { display:flex; align-items:stretch; overflow-x:auto; width:100%; scroll-snap-type:x mandatory; -webkit-overflow-scrolling:touch; scrollbar-width:none; }
 .thp-swipe-wrap::-webkit-scrollbar { display:none; }
 .thp-page { flex:0 0 100%; min-width:100%; scroll-snap-align:start; }
@@ -8331,6 +8423,14 @@ hr{border:none;border-top:1px solid var(--border);margin:14px 0;}
    The filter bar's active pills hardcode the orange instead of using the
    variable, so those two need an explicit override alongside it. */
 body[data-page="internTasks"] { --accent: var(--brand); }
+/* Reward Store page theme — same idea as the Tasks override above. Every
+   visual accent on this page (the Overview card gradient, dropdown icons,
+   redeem buttons, etc.) hardcodes the same violet (#6c5ce7), NOT the global
+   orange --accent — so the floating FAB (which rides on var(--accent), see
+   .mob-fab) looked mismatched/off-theme there. Re-pointing --accent to that
+   same violet for this page's scope fixes the FAB without touching any of
+   the page's own hardcoded-color rules. */
+body[data-page="internRewards"] { --accent: #6c5ce7; }
 [data-page="internTasks"] .hd-status-active { background:var(--brand)!important; }
 [data-page="internTasks"] .hd-cat-active { border-color:var(--brand)!important; color:var(--brand)!important; }
 /* Date strip's "today"/"selected" ring backgrounds also hardcode the
@@ -10521,11 +10621,61 @@ body[data-page="internTasks"] { --accent: var(--brand); }
 .rws-redeem-btn:active{background:#6c5ce7;color:#fff;}
 .rws-redeem-disabled{border-color:var(--border)!important;color:var(--text3)!important;cursor:not-allowed;}
 
-/* Reward Store — custom page sub-header (replaces app topbar) */
+/* Reward Store page — own self-contained fixed overlay, matching the exact
+   pattern .arw-page (Admin Rewards) already uses successfully: a single
+   position:fixed, full-screen scroll owner with the header pinned via
+   position:sticky inside it. BUG FIX: renderInternRewards() previously
+   injected .rws-page-header + .rw-body directly into the shared
+   #contentArea/.content-area (itself independently scrollable), with
+   .rw-body ALSO carrying its own flex:1+overflow-y:auto — two nested,
+   competing scroll containers. Sticky only pins within its OWN nearest
+   scrolling ancestor, so depending on which of those two scroll boxes
+   actually activated on a given screen, the header could end up drifting
+   with the page instead of staying put ("do not move it"). Giving this
+   page its own single scroll context (like .arw-page) removes the
+   ambiguity entirely. */
+.rws-page{position:fixed;top:0;left:0;right:0;bottom:0;overflow-y:auto;overflow-x:hidden;background:var(--bg);z-index:50;-webkit-overflow-scrolling:touch;}
+/* Same soft gradient as Home/Tasks/Profile (see [data-page="internDashboard"]
+   .content-area, [data-page="internTasks"] .content-area, and .np2-wrap
+   above) — light mode only, plain --bg in dark mode, matching all three. */
+:root:not([data-theme="dark"]) .rws-page{background:linear-gradient(160deg, #fbeee9 0%, #f3e6ee 35%, #e9e6f5 65%, #e1e4f5 100%);}
+/* Same treatment as Profile's .np2-hd: no solid white bar/border sitting on
+   top of the page's own gradient — blend into it instead, matching the
+   gradient's top color (which itself must stay OPAQUE — a truly
+   transparent sticky header would let content scrolling underneath show
+   through it, the exact bug that had to be fixed on Profile). */
 .rws-page-header{display:flex;align-items:center;gap:12px;padding:calc(14px + env(safe-area-inset-top)) 16px 12px;background:var(--surface);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:20;}
+:root:not([data-theme="dark"]) .rws-page-header{background:#fbeee9;border-bottom:none;}
 .rws-back-btn{width:36px;height:36px;border-radius:10px;border:1.5px solid var(--border);background:var(--bg);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;color:var(--text2);-webkit-tap-highlight-color:transparent;}
 .rws-back-btn:active{opacity:.7;}
-.rws-page-title{flex:1;font-size:18px;font-weight:700;color:var(--text);font-family:-apple-system,'SF Pro Display',system-ui,sans-serif;text-align:center;}
+/* font-family intentionally not overridden here — inherits the body's
+   'DM Sans'/'Outfit' stack so the bold weight renders the same as Profile's
+   title (.np2-topbar-title, which also inherits the body font) instead of
+   falling back to the system sans-serif on Android, which renders 700
+   visibly lighter. */
+.rws-page-title{flex:1;font-size:18px;font-weight:700;color:var(--text);text-align:center;}
+/* Reward Store header: back button removed (see renderInternRewards()), so
+   the title is no longer centered between a back button and a dots menu —
+   left-align it instead. Scoped to its own class so Notifications' header
+   (which still has its back button) stays centered, unaffected. */
+.rws-page-title-left{text-align:left;}
+/* Transaction History regained a back button + centered title (see
+   renderInternRewards()), so — like Notifications — it gets a thin white
+   divider between header and body; the other Rewards tabs (Store/Wallet/
+   Redeemed) share .rws-page-header too but stay border-free, so this is
+   scoped to the dedicated class added only on the History tab's header. */
+:root:not([data-theme="dark"]) .rws-page-header-line{border-bottom:1px solid #d1d1d1;}
+/* .rw-body is shared with other pages (Notifications) that still rely on
+   the ambient .content-area scroll — scope this override to just the new
+   .rws-page wrapper so it doesn't change anything for them. Inside
+   .rws-page, the outer page is the only scroll owner (matching .arw-body's
+   plain, non-scrolling style), so the header has nothing competing with it. */
+.rws-page .rw-body{flex:none;overflow-y:visible;}
+/* Same fix, scoped to Notifications' reuse of .arw-page as its wrapper (see
+   renderInternNotifs()) — .rw-body's own flex:1+overflow-y:auto would
+   otherwise create the identical nested competing-scroll-container problem
+   inside .arw-page (which is itself already display:flex + overflow-y:auto). */
+.arw-page .rw-body{flex:none;overflow-y:visible;}
 
 /* Admin Rewards — Award coins button */
 .rw-award-btn{padding:5px 12px;border-radius:8px;border:1.5px solid #6c5ce7;background:transparent;color:#6c5ce7;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;-webkit-tap-highlight-color:transparent;white-space:nowrap;}
@@ -10536,6 +10686,14 @@ body[data-page="internTasks"] { --accent: var(--brand); }
    ╚══════════════════════════════════════════════════════╝ */
 
 .arw-page{display:flex;flex-direction:column;background:var(--bg);font-family:-apple-system,'SF Pro Display',system-ui,sans-serif;position:fixed;top:0;left:0;right:0;bottom:0;overflow-y:auto;overflow-x:hidden;z-index:50;scrollbar-width:none;-ms-overflow-style:none;}
+/* Notifications page reuses .arw-page as its wrapper, but only Notifications
+   itself should get the soft peach-to-lavender gradient background — Admin
+   Rewards' Manage/Setup/Redeemed subpages also use .arw-page and must stay
+   plain, so this is scoped to body[data-page="internNotifs"] specifically,
+   not a blanket .arw-page rule. Light mode only, matching Home/Tasks/Profile/
+   Rewards/Leaderboard. */
+:root:not([data-theme="dark"]) body[data-page="internNotifs"] .arw-page{background:linear-gradient(160deg, #fbeee9 0%, #f3e6ee 35%, #e9e6f5 65%, #e1e4f5 100%);}
+:root:not([data-theme="dark"]) body[data-page="internNotifs"] .rws-page-header{background:#fbeee9;border-bottom:1px solid #d1d1d1;}
 .arw-page button, .arw-page a, .arw-page input, .arw-page textarea,
 .fc-modal-sheet button, .fc-modal-sheet input, .fc-modal-sheet textarea,
 .qp-page button, .qp-page input, .qp-page textarea {
@@ -10632,12 +10790,20 @@ body[data-page="internTasks"] { --accent: var(--brand); }
 
 /* Shared page chrome */
 .rwf-page,.rwd-page{position:fixed;top:0;left:0;right:0;bottom:0;background:var(--bg);overflow-y:auto;z-index:55;font-family:-apple-system,'SF Pro Display',system-ui,sans-serif;}
-.rwf-header,.rwd-header{display:flex;align-items:center;justify-content:space-between;padding:14px 16px 12px;background:var(--surface);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:30;}
+/* BUG FIX: this full-screen overlay never accounted for the notch/status-bar
+   safe area at all — unlike every other full-page header in this codebase
+   (see .ct-header's "calc(16px + env(safe-area-inset-top))" pattern), so
+   the header sat flush against the very top edge of the screen instead of
+   below the status bar/notch. */
+.rwf-header,.rwd-header{display:flex;align-items:center;justify-content:space-between;padding:calc(14px + env(safe-area-inset-top)) 16px 12px;background:var(--surface);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:30;}
 .rwf-header-title,.rwd-header-title{position:absolute;left:50%;transform:translateX(-50%);font-size:17px;font-weight:700;color:var(--text);pointer-events:none;white-space:nowrap;}
 .rwd-status-badge{font-size:12px;font-weight:700;padding:4px 12px;border-radius:6px;}
 
 /* ── CREATE/EDIT FORM ── */
-.rwf-body{padding:16px 16px 40px;display:flex;flex-direction:column;gap:0;}
+/* Same bug on the bottom edge — the Save/Create button sits right inside
+   this padding, and on a gesture-nav phone it landed underneath the home
+   indicator instead of clear of it. */
+.rwf-body{padding:16px 16px calc(40px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:0;}
 .rwf-section{margin-bottom:20px;}
 .rwf-label{font-size:15px;font-weight:600;color:var(--text);margin-bottom:8px;}
 .rwf-req{color:#ef4444;}
@@ -10841,13 +11007,25 @@ body[data-page="internTasks"] { --accent: var(--brand); }
 ══════════════════════════════════════════════ */
 
 /* ── sticky header: ONLY the "Profile + dots" topbar ── */
+/* BUG FIX: this was always meant to be sticky (per the comment above), but
+   never actually declared position:sticky — so it scrolled away with the
+   rest of the profile content instead of staying pinned at the top. */
 .np2-hd {
   background: var(--surface);
   border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 15;
 }
+/* BUG FIX: this was transparent, letting the profile background gradient
+   show through it — fine while static, but since .np2-hd is now sticky
+   (pinned in place), everything scrolling underneath (avatar card, stat
+   bars, etc.) became visible right through/behind it instead of staying
+   cleanly hidden by a solid header band. Match it to the gradient's own top
+   color instead of leaving it see-through, same fix as .lb2-header. */
 :root:not([data-theme="dark"]) .np2-hd {
-  background: transparent;
-  border-bottom: none;
+  background: #fbeee9;
+  border-bottom: 1px solid #d1d1d1;
 }
 
 /* ── scrollable identity block ── */
@@ -10869,10 +11047,9 @@ body[data-page="internTasks"] { --accent: var(--brand); }
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
-  font-size: 17px;
+  font-size: 18px;
   font-weight: 700;
   color: var(--np2-text);
-  letter-spacing: -.1px;
   line-height: 1;
   pointer-events: none;
   white-space: nowrap;
@@ -11216,7 +11393,10 @@ body[data-page="internTasks"] { --accent: var(--brand); }
 .np2-vta-up { color: #22c55e; }
 .np2-vta-down { color: #ef4444; }
 
-.np2-tabs-row { display: flex; gap: 4px; background: var(--np2-surface2); border: 1px solid var(--np2-border); border-radius: 12px; padding: 4px; overflow-x: auto; scrollbar-width: none; position: sticky; top: 0; z-index: 30; box-shadow: 0 2px 8px rgba(0,0,0,.06); }
+/* Sticking this to the top on scroll (it used to dock under the header
+   instead of scrolling away with the rest of the page) was removed per
+   request — it now just scrolls normally like any other section. */
+.np2-tabs-row { display: flex; gap: 4px; background: var(--np2-surface2); border: 1px solid var(--np2-border); border-radius: 12px; padding: 4px; overflow-x: auto; scrollbar-width: none; box-shadow: 0 2px 8px rgba(0,0,0,.06); }
 .np2-tabs-row::-webkit-scrollbar { display: none; }
 .np2-tab-btn { flex: 1; padding: 9px 6px; font-size: 13px; font-weight: 600; color: var(--np2-text2); background: none; border: none; border-radius: 9px; cursor: pointer; font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif; white-space: nowrap; transition: color .15s, background .15s; -webkit-tap-highlight-color: transparent; }
 .np2-tab-btn.np2-tab-on { color: var(--np2-purple); background: rgba(124,58,237,.15); }
@@ -11580,9 +11760,11 @@ body[data-page="internTasks"] { --accent: var(--brand); }
 .dm-inbox-wrap{position:fixed;inset:0;display:flex;flex-direction:column;background:var(--bg);overflow:hidden;}
 :root:not([data-theme="dark"]) .dm-inbox-wrap{background:linear-gradient(160deg, #fbeee9 0%, #f3e6ee 35%, #e9e6f5 65%, #e1e4f5 100%);}
 .dm-inbox-hd{display:flex;align-items:center;gap:10px;padding:calc(20px + env(safe-area-inset-top)) 20px 16px;background:var(--surface);border-radius:0;flex-shrink:0;}
-:root:not([data-theme="dark"]) .dm-inbox-hd{background:transparent;}
+:root:not([data-theme="dark"]) .dm-inbox-hd{background:#fbeee9;border-bottom:1px solid #d1d1d1;}
 [data-theme="dark"] .dm-inbox-hd{background:var(--surface);}
-.dm-inbox-title{font-size:24px;font-weight:800;color:var(--text);flex:1;font-family:'Outfit',sans-serif;letter-spacing:normal;}
+/* Same title styling as Notifications' .rws-page-title, so Messages' header
+   text matches it exactly. */
+.dm-inbox-title{flex:1;font-size:18px;font-weight:700;color:var(--text);font-family:-apple-system,'SF Pro Display',system-ui,sans-serif;text-align:center;}
 .dm-inbox-search-btn{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:50%;background:none;border:none;color:var(--text2);cursor:pointer;flex-shrink:0;}
 .dm-inbox-search-btn:active{background:rgba(0,0,0,.06);}
 .dm-inbox-body{flex:1;overflow-y:auto;background:var(--bg);padding:20px 16px 24px;}
@@ -11613,12 +11795,14 @@ body[data-page="internTasks"] { --accent: var(--brand); }
 .dm-thread-wrap{position:fixed;inset:0;display:flex;flex-direction:column;background:var(--bg);z-index:50;}
 :root:not([data-theme="dark"]) .dm-thread-wrap{background:linear-gradient(160deg, #fbeee9 0%, #f3e6ee 35%, #e9e6f5 65%, #e1e4f5 100%);}
 .dm-thread-hd{display:flex;align-items:center;gap:12px;padding:calc(16px + env(safe-area-inset-top)) 16px 12px;background:var(--surface);border-radius:0;flex-shrink:0;position:relative;z-index:1;}
-:root:not([data-theme="dark"]) .dm-thread-hd{background:transparent;}
+:root:not([data-theme="dark"]) .dm-thread-hd{background:#fbeee9;}
 [data-theme="dark"] .dm-thread-hd{background:var(--surface);}
-.dm-thread-back{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:50%;background:none;border:none;color:var(--text);cursor:pointer;flex-shrink:0;}
-.dm-thread-back:active{background:var(--surface2);}
+/* Same square, white/bordered look as Notifications' .rws-back-btn, so Chat's
+   back button (shared by the Inbox and Thread headers) matches it exactly. */
+.dm-thread-back{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:10px;background:var(--bg);border:1.5px solid var(--border);color:var(--text2);cursor:pointer;flex-shrink:0;-webkit-tap-highlight-color:transparent;}
+.dm-thread-back:active{opacity:.7;}
 .dm-thread-avatar{width:38px;height:38px;border-radius:50%;object-fit:cover;background:var(--surface2);flex-shrink:0;}
-.dm-thread-name{font-size:24px;font-weight:800;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;font-family:'Outfit',sans-serif;letter-spacing:normal;}
+.dm-thread-name{font-size:24px;font-weight:800;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;text-align:center;font-family:'Outfit',sans-serif;letter-spacing:normal;}
 .dm-thread-menu-btn{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:50%;background:none;border:none;color:var(--text2);cursor:pointer;flex-shrink:0;}
 .dm-thread-menu-btn:active{background:var(--surface2);}
 
@@ -12389,19 +12573,38 @@ body[data-page="internTasks"] { --accent: var(--brand); }
   font-family: -apple-system, 'SF Pro Display', system-ui, sans-serif;
   padding-bottom: 90px;
 }
+/* BUG FIX: never had position:sticky, so it scrolled away with the ranking
+   list instead of staying pinned. Background matches the page's own
+   gradient at its top edge (#fbeee9) rather than a plain surface color, so
+   list rows scrolling underneath don't show through a mismatched patch. */
+/* Now a column: the title row (.lb2-header-top) stacked above the trophy
+   row (.lb2-trophy-row) — both live inside this single sticky header so the
+   trophy/league icons stay fixed in place instead of scrolling away with
+   the ranking list, and the trophy row's own border-bottom becomes the
+   divider line right after them. */
 .lb2-header {
-  display: flex; align-items: flex-start; gap: 10px;
-  padding: calc(16px + env(safe-area-inset-top)) 18px 4px;
+  display: flex; flex-direction: column;
+  padding: calc(16px + env(safe-area-inset-top)) 0 0;
+  position: sticky; top: 0; z-index: 15;
+  background: #fff;
 }
-.lb2-hamburger {
-  background: none; border: none; width: 34px; height: 34px; flex-shrink: 0;
-  display: flex; align-items: center; justify-content: center; color: #111827; cursor: pointer;
-}
+[data-theme="dark"] .lb2-header { background: var(--bg); }
+/* Divider between the title row and the trophy/league row below it, so the
+   two are visually separated even though both stay inside the same sticky
+   header. */
+.lb2-header-top { display: flex; align-items: flex-start; gap: 10px; padding: 0 18px 12px; border-bottom: 1px solid #d1d1d1; }
 .lb2-header-titles { flex: 1; position: relative; }
+/* Matched to Reward Store's .rws-page-title / Profile's .np2-topbar-title:
+   18px, weight 700. font-family is set explicitly here (rather than left to
+   inherit) because .lb2-page itself overrides font-family to a system
+   stack that renders weight 700 visibly lighter on Android — the same bug
+   Reward Store had — so this overrides back to the body's own font stack,
+   matching Profile and Reward Store exactly. */
 .lb2-period-btn {
-  display: inline-flex; align-items: center; gap: 6px; background: none; border: none;
-  font-size: 24px; font-weight: 800; color: #111827; font-family: 'Outfit', sans-serif;
-  cursor: pointer; padding: 0;
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 18px; font-weight: 700; color: #111827;
+  font-family: 'DM Sans','Outfit',-apple-system,BlinkMacSystemFont,sans-serif;
+  padding: 0;
 }
 .lb2-countdown {
   display: flex; align-items: center; gap: 5px; margin-top: 4px;
@@ -12409,7 +12612,7 @@ body[data-page="internTasks"] { --accent: var(--brand); }
 }
 .lb2-trophy-row {
   display: flex; align-items: flex-end; justify-content: center; gap: 18px;
-  padding: 18px 16px 22px; border-bottom: 1px solid #eef0f3;
+  padding: 18px 16px 22px; border-bottom: 1px solid #d1d1d1;
 }
 
 .lb2-list { padding: 4px 0; }
