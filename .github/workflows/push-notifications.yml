@@ -1,13 +1,12 @@
 name: Push notifications
 
-# Manual-only: real-time delivery is handled by the onPushQueued Cloud
-# Function (see functions/index.js) now. This stays as a fallback you can
-# run by hand — Actions tab → "Push notifications" → "Run workflow" — to
-# drain anything that piled up in pushQueue while that function was down,
-# or before it's deployed at all. No schedule trigger here anymore: running
-# both a poller and the real-time function on a schedule would race to
-# send/delete the same queue entries.
 on:
+  schedule:
+    # GitHub's minimum cron granularity is 1 minute but scheduled runs are
+    # only best-effort and can be delayed under load — 5 minutes keeps this
+    # cheap while still being fast enough for task/reward-style notifications
+    # (this is not a chat delivery path; see push-worker/drain.js).
+    - cron: '*/5 * * * *'
   workflow_dispatch: {}
 
 jobs:
