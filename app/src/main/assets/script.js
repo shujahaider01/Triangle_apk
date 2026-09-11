@@ -5429,6 +5429,7 @@ function updateBadges() {
   // destinations, per "do not display navigation bar" on those screens.
   const hideIndividualNav = currentPage === 'adminRewards' || currentPage === 'internLeaderboard'
     || currentPage === 'dmThread' || currentPage === 'dmInbox' || currentPage === 'internNotifs'
+    || currentPage === 'adminDriveBackup'
     || (currentPage === 'internRewards' && window.rwTab === 'history')
     || isViewingOtherProfile;
   if (mobNav)  mobNav.style.display  = (showIntern && !hideInternNav) ? 'flex' : 'none';
@@ -7029,18 +7030,25 @@ function renderAdminAccountSettings(ca) {
 }
 
 // Dedicated full-screen "Backup & Restore" page — reached from Settings >
-// Admin > Backup & Restore (right under Toolkit). Uses the same classic
-// .rws-page-header (back button + centered title) as the Notifications
-// page rather than the Settings-style header, and hides the app topbar +
-// bottom nav/FAB — see the page-name lists inside navigateTo()/
-// updateBadges() where 'adminDriveBackup' is added alongside the other
-// full-screen sub-pages (dmThread, internNotifs, etc.). Card content comes
-// from renderDriveBackupSection() (see that function + MainActivity.kt/
-// WebAppInterface.kt for how the native bridge side works).
+// Admin > Backup & Restore (right under Toolkit), and also from Individual's
+// Settings > Data (see renderInternSettings' currentRole==='individual'
+// block — Individual owns its own solo org's data same as an admin owns
+// theirs, so it gets the same Drive feature; interns don't). Uses the same
+// classic .rws-page-header (back button + centered title) as the
+// Notifications page rather than the Settings-style header, and hides the
+// app topbar + bottom nav/FAB — see the page-name lists inside
+// navigateTo()/updateBadges() where 'adminDriveBackup' is added alongside
+// the other full-screen sub-pages (dmThread, internNotifs, etc.) — kept as
+// one shared page/function/key for both roles rather than a duplicate
+// "individualDriveBackup", same as renderDriveBackupSection() below it is
+// already shared. Card content comes from renderDriveBackupSection() (see
+// that function + MainActivity.kt/WebAppInterface.kt for how the native
+// bridge side works).
 function renderAdminDriveBackup(ca) {
+  const backTarget = currentRole === 'admin' ? 'adminAccountSettings' : 'internSettings';
   ca.innerHTML = `
     <div class="rws-page-header">
-      <button class="rws-back-btn" onclick="navigateTo('adminAccountSettings')">
+      <button class="rws-back-btn" onclick="navigateTo('${backTarget}')">
         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
       </button>
       <span class="rws-page-title">Backup &amp; Restore</span>
@@ -7198,6 +7206,22 @@ function renderInternSettings(ca) {
             <svg class="isettings-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
           </div>
         </div>
+
+        ${currentRole === 'individual' ? `
+        <!-- Individual owns its own solo org's data the same way an admin
+             owns their org's — see _authPickRole()'s 'individual' branch —
+             so it gets the same Google Drive backup/restore/export/import
+             built for Admin > Backup & Restore. Interns don't: they don't
+             own the org's data, so this section stays out of their
+             (otherwise identical) Settings page. -->
+        <div class="isettings-section-lbl">Data</div>
+        <div class="isettings-group">
+          <div class="isettings-row" onclick="navigateTo('adminDriveBackup')">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7 18a4.5 4.5 0 0 1-1.44-8.765 5 5 0 0 1 9.63-2.006A4.5 4.5 0 0 1 18 18H7z"/><path d="M12 12v6"/><path d="m9 15 3-3 3 3"/></svg>
+            <span>Backup &amp; Restore</span>
+            <svg class="isettings-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+          </div>
+        </div>` : ''}
 
         <div class="isettings-section-lbl">Appearance</div>
         <div class="isettings-group">
@@ -19838,7 +19862,8 @@ function restoreColorTheme() {
 }
 
 // ╔══════════════════════════════════════════════════╗
-// ║   GOOGLE DRIVE BACKUP/RESTORE (Settings > Integrations, admin only) ║
+// ║   GOOGLE DRIVE BACKUP/RESTORE (Settings > Backup & Restore —          ║
+// ║   Admin and Individual roles only; interns don't own org data)       ║
 // ╚══════════════════════════════════════════════════╝
 // This entire feature is a thin JS layer over four native bridge methods
 // (see MainActivity.kt / WebAppInterface.kt / DriveBackupHelper.kt) —
@@ -20117,7 +20142,10 @@ async function _handleImportDataFile(inputEl) {
 // since the admin never explicitly asked for this specific run.
 function maybeAutoBackup() {
   try {
-    if (currentRole !== 'admin' || !autoBackupEnabled || !isDriveConnected() || _autoBackupInFlight) return;
+    // Individual owns its own solo org's data the same way an admin owns
+    // theirs (see renderAdminDriveBackup's comment), so it gets the same
+    // opportunistic auto-backup check.
+    if ((currentRole !== 'admin' && currentRole !== 'individual') || !autoBackupEnabled || !isDriveConnected() || _autoBackupInFlight) return;
     const DAY_MS = 24 * 60 * 60 * 1000;
     if (Date.now() - getLastBackupTs() < DAY_MS) return;
     _autoBackupInFlight = true;
