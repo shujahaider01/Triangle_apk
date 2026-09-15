@@ -18,9 +18,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -119,33 +116,43 @@ fun HabitCard(
     }
 }
 
-/** 22-week x 7-day GitHub-contribution-graph-style grid — matches _buildHabitHeatmap()'s column-major week layout. */
+/**
+ * 22-week x 7-day GitHub-contribution-graph-style grid — matches
+ * _buildHabitHeatmap()'s column-major week layout: each of the 7 rows is a
+ * fixed day-of-week (row 0 = Monday, row 6 = Sunday) with one cell per week
+ * running left-to-right. A Column-of-Rows (not LazyVerticalGrid) sizes
+ * itself to its content instead of needing a guessed fixed height — with
+ * cells this small (~13dp each, based on 22 across a card's width), a
+ * hardcoded height(60.dp) was too short for all 7 rows and silently
+ * clipped the bottom ones.
+ */
 @Composable
 private fun HabitHeatmap(color: Color, completions: Map<String, HabitCompletionEntry>) {
     val today = java.time.LocalDate.now()
     val cells = remember(today) { HabitStats.heatmapGrid(today) }
-    LazyVerticalGrid(
-        columns = GridCells.Fixed(22),
-        horizontalArrangement = Arrangement.spacedBy(3.dp),
-        verticalArrangement = Arrangement.spacedBy(3.dp),
-        modifier = Modifier.fillMaxWidth().height(60.dp)
-    ) {
-        items(cells) { day ->
-            if (day == null) {
-                Box(Modifier.aspectRatio(1f))
-            } else {
-                val doneThatDay = completions.containsKey(day.toString())
-                val isToday = day == today
-                Box(
-                    Modifier
-                        .aspectRatio(1f)
-                        .clip(RoundedCornerShape(3.dp))
-                        .background(color.copy(alpha = if (doneThatDay) 1f else 0.18f))
-                        .then(
-                            if (isToday) Modifier.border(1.dp, Color.Black.copy(alpha = 0.4f), RoundedCornerShape(3.dp))
-                            else Modifier
+    val rows = remember(cells) { cells.chunked(22) }
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        rows.forEach { rowCells ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                rowCells.forEach { day ->
+                    if (day == null) {
+                        Box(Modifier.weight(1f).aspectRatio(1f))
+                    } else {
+                        val doneThatDay = completions.containsKey(day.toString())
+                        val isToday = day == today
+                        Box(
+                            Modifier
+                                .weight(1f)
+                                .aspectRatio(1f)
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(color.copy(alpha = if (doneThatDay) 1f else 0.18f))
+                                .then(
+                                    if (isToday) Modifier.border(1.dp, Color.Black.copy(alpha = 0.4f), RoundedCornerShape(3.dp))
+                                    else Modifier
+                                )
                         )
-                )
+                    }
+                }
             }
         }
     }
