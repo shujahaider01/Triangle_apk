@@ -29,6 +29,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -40,6 +41,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.triangle.app.data.AutoAssignCycle
 import com.triangle.app.data.HabitPalette
 import com.triangle.app.data.HabitRepository
 import com.triangle.app.data.SessionStore
@@ -74,13 +76,25 @@ fun CreateEditHabitScreen(
 
     var name by remember { mutableStateOf(existingHabit?.name ?: "") }
     var description by remember { mutableStateOf(existingHabit?.description ?: "") }
-    var color by remember { mutableStateOf(existingHabit?.color ?: HabitPalette.COLORS.random()) }
+    var color by remember { mutableStateOf(existingHabit?.color ?: HabitPalette.DEFAULT_COLOR) }
     var iconKey by remember { mutableStateOf(HabitPalette.DEFAULT_ICON_KEY) }
     var iconSvg by remember { mutableStateOf(existingHabit?.iconSvg ?: HabitPalette.ICONS.getValue(HabitPalette.DEFAULT_ICON_KEY)) }
     var xp by remember { mutableStateOf(existingHabit?.xpPerCompletion ?: 5) }
     var isEveryday by remember { mutableStateOf(existingHabit?.frequency?.type != "daysOfWeek") }
     var selectedDays by remember { mutableStateOf((existingHabit?.frequency?.days ?: emptyList()).toSet()) }
     var saving by remember { mutableStateOf(false) }
+
+    // New habits start on the next color+icon in the auto-assign rotation
+    // (matches script.js's _nextAutoColorAndIcon()) instead of always the
+    // same default — editing an existing habit keeps its saved color/icon.
+    LaunchedEffect(Unit) {
+        if (isNew) {
+            val pick = AutoAssignCycle.next(session.orgId)
+            color = pick.color
+            iconKey = pick.iconKey
+            iconSvg = pick.iconSvg
+        }
+    }
 
     fun save() {
         if (name.isBlank() || saving) return

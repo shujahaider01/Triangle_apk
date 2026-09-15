@@ -36,6 +36,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,6 +48,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.triangle.app.data.AutoAssignCycle
 import com.triangle.app.data.HabitPalette
 import com.triangle.app.data.SessionStore
 import com.triangle.app.data.TaskRepository
@@ -84,12 +86,24 @@ fun CreateEditTaskScreen(
     var category by remember { mutableStateOf(existingTask?.category ?: "Personal") }
     var points by remember { mutableStateOf(existingTask?.points ?: 10) }
     var dueDate by remember { mutableStateOf(existingTask?.dueDate) }
-    var color by remember { mutableStateOf(existingTask?.iconColor ?: HabitPalette.COLORS.random()) }
+    var color by remember { mutableStateOf(existingTask?.iconColor ?: HabitPalette.DEFAULT_COLOR) }
     var iconKey by remember { mutableStateOf(HabitPalette.DEFAULT_ICON_KEY) }
     var iconSvg by remember { mutableStateOf(existingTask?.iconSvg ?: HabitPalette.ICONS.getValue(HabitPalette.DEFAULT_ICON_KEY)) }
     var checklist by remember { mutableStateOf(existingTask?.checklist ?: emptyList()) }
     var showDatePicker by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
+
+    // New tasks start on the next color+icon in the auto-assign rotation
+    // (matches script.js's _nextAutoColorAndIcon()) instead of always the
+    // same default — editing an existing task keeps its saved color/icon.
+    LaunchedEffect(Unit) {
+        if (isNew) {
+            val pick = AutoAssignCycle.next(session.orgId)
+            color = pick.color
+            iconKey = pick.iconKey
+            iconSvg = pick.iconSvg
+        }
+    }
 
     fun save() {
         if (title.isBlank() || saving) return

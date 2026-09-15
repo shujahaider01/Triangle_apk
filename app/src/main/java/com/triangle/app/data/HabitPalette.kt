@@ -41,6 +41,34 @@ object HabitPalette {
 
     val DEFAULT_COLOR = "#009688" // teal — a reasonable neutral default
 
+    // Same re-ordering script.js's AUTO_COLOR_CYCLE does: COLORS above is
+    // grouped in runs of same-hue shades (10 reds, then 10 oranges, ...),
+    // exactly right for the manual picker grid but wrong for auto-assignment
+    // (consecutive auto-picks would be near-identical shades of the same
+    // hue before ever reaching a different family). This re-orders the same
+    // 129 colors "column-major" — one color from every hue family first,
+    // then the next shade of every family — so consecutive auto-picks
+    // always look visually distinct (red, then teal, then gold, then blue...).
+    // Keep in sync with COLORS' row layout if that list is ever edited.
+    private val HUE_GROUP_SIZES = listOf(10, 10, 10, 10, 5, 10, 10, 10, 10, 8, 9, 10, 10, 7)
+
+    val AUTO_COLOR_CYCLE: List<String> = run {
+        val groups = mutableListOf<List<String>>()
+        var i = 0
+        for (size in HUE_GROUP_SIZES) {
+            groups.add(COLORS.subList(i, i + size))
+            i += size
+        }
+        val maxLen = HUE_GROUP_SIZES.max()
+        val order = mutableListOf<String>()
+        for (col in 0 until maxLen) {
+            for (g in groups) {
+                if (col < g.size) order.add(g[col])
+            }
+        }
+        order
+    }
+
     // Full HABIT_ICONS palette, verbatim SVG source (same paths/viewBox as
     // script.js — fill="currentColor" so tint is applied at render time).
     val ICONS: Map<String, String> = linkedMapOf(
