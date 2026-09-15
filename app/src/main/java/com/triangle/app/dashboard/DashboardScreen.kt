@@ -55,6 +55,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.triangle.app.data.SessionStore
+import com.triangle.app.ui.theme.TriangleBrandPurple
+import com.triangle.app.ui.theme.TriangleBrandPurpleLight
 
 // ── Design tokens ported 1:1 from style.css (see the same hex values in
 // :root's --brand/--brand-light, .points-big, .idash-analytics-box's inline
@@ -62,8 +64,8 @@ import com.triangle.app.data.SessionStore
 // [data-page="internDashboard"] .content-area page background) — the goal
 // of this screen is to look like the same app, not a redesign; only the
 // implementation language changed.
-private val BrandPurple = Color(0xFF6D5EF5)
-private val BrandPurpleLight = Color(0xFF8B7CF6)
+private val BrandPurple = TriangleBrandPurple
+private val BrandPurpleLight = TriangleBrandPurpleLight
 private val PageGradientLight = listOf(Color(0xFFFBEEE9), Color(0xFFF3E6EE), Color(0xFFE9E6F5), Color(0xFFE1E4F5))
 private val PageBgDark = Color(0xFF141414)
 private val CardBgDark = Color(0xFF1C1C1E)

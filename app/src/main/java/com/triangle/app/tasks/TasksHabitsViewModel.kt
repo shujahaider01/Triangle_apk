@@ -32,7 +32,12 @@ data class TasksHabitsUiState(
     /** Task ids whose completion is optimistically shown but not yet committed to Firebase (5s undo window). */
     val optimisticDone: Set<String> = emptySet(),
     val visibleHabits: List<Habit> = emptyList(),
-    val habitCompletions: Map<String, Map<String, HabitCompletionEntry>> = emptyMap()
+    val habitCompletions: Map<String, Map<String, HabitCompletionEntry>> = emptyMap(),
+    /** Counts for the selected date, BEFORE category filtering — matches _renderSharedHeader()'s totalCount/dueN (status pills show "All (N)"/"Due (N)"). */
+    val taskTotalCount: Int = 0,
+    val taskDueCount: Int = 0,
+    val habitTotalCount: Int = 0,
+    val habitDueCount: Int = 0
 )
 
 /**
@@ -86,12 +91,9 @@ class TasksHabitsViewModel(private val session: SessionStore.Session) : ViewMode
     ) {
         val s = _uiState.value
         val dateStr = s.selectedDate.toString()
-        val tasksForDate = tasks.filter { t ->
-            t.appliesTo(session.uid) && !t.isTemplate &&
-                (t.instanceDate ?: t.dueDate ?: t.createdDate ?: dateStr) == dateStr
-        }
+        val tasksForDate = tasksForDateFrom(tasks, dateStr)
         val statusFiltered = if (s.taskStatusFilter == "Due") {
-            tasksForDate.filter { !isDone(it, completions) }
+            tasksForDate.filter { !isDoneOn(it, completions) }
         } else tasksForDate
         val catFiltered = if (s.categoryFilter == "All") statusFiltered
         else statusFiltered.filter { (it.category.ifBlank { "Personal" }) == s.categoryFilter }
@@ -107,12 +109,43 @@ class TasksHabitsViewModel(private val session: SessionStore.Session) : ViewMode
             visibleTasks = catFiltered,
             completions = completions,
             visibleHabits = habitCatFiltered,
-            habitCompletions = habitCompletions
+            habitCompletions = habitCompletions,
+            taskTotalCount = tasksForDate.size,
+            taskDueCount = tasksForDate.count { !isDoneOn(it, completions) },
+            habitTotalCount = habitsForDate.size,
+            habitDueCount = habitsForDate.count { h -> !(habitCompletions[h.id]?.containsKey(dateStr) ?: false) }
         )
     }
 
+    private fun tasksForDateFrom(tasks: List<Task>, dateStr: String): List<Task> =
+        tasks.filter { t ->
+            t.appliesTo(session.uid) && !t.isTemplate &&
+                (t.instanceDate ?: t.dueDate ?: t.createdDate ?: dateStr) == dateStr
+        }
+
+    private fun isDoneOn(task: Task, completions: Set<String>): Boolean =
+        completions.contains("${task.id}-${session.uid}")
+
     fun isDone(task: Task, completions: Set<String> = _uiState.value.completions): Boolean =
         _uiState.value.optimisticDone.contains(task.id) || completions.contains("${task.id}-${session.uid}")
+
+    /** Matches _habitDayPct() — % of this date's tasks completed. Used by the date-strip's progress ring. */
+    fun tasksPctForDate(date: LocalDate): Int {
+        val forDate = tasksForDateFrom(allTasks.value, date.toString())
+        if (forDate.isEmpty()) return 0
+        val completions = allCompletions.value
+        return Math.round(forDate.count { isDoneOn(it, completions) } * 100f / forDate.size)
+    }
+
+    /** Matches _hbDayPct() — % of this date's scheduled habits completed. */
+    fun habitsPctForDate(date: LocalDate): Int {
+        val dateStr = date.toString()
+        val forDate = HabitStats.habitsForDate(allHabits.value, dateStr, session.uid)
+        if (forDate.isEmpty()) return 0
+        val completionsByHabit = allHabitCompletions.value
+        val done = forDate.count { h -> completionsByHabit[h.id]?.containsKey(dateStr) ?: false }
+        return Math.round(done * 100f / forDate.size)
+    }
 
     fun selectDate(date: LocalDate) {
         _uiState.value = _uiState.value.copy(selectedDate = date)

@@ -32,6 +32,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -132,21 +133,25 @@ fun HabitDetailScreen(
 @Composable
 private fun HabitDetailHeatmap(color: Color, completions: Map<String, com.triangle.app.data.models.HabitCompletionEntry>) {
     val today = LocalDate.now()
-    val days = (153 downTo 0).map { today.minusDays(it.toLong()) }
+    val cells = remember(today) { com.triangle.app.data.HabitStats.heatmapGrid(today) }
     LazyVerticalGrid(
         columns = GridCells.Fixed(22),
         horizontalArrangement = Arrangement.spacedBy(3.dp),
         verticalArrangement = Arrangement.spacedBy(3.dp),
         modifier = Modifier.fillMaxWidth().height(60.dp)
     ) {
-        items(days) { day ->
-            val doneThatDay = completions.containsKey(day.toString())
-            Box(
-                Modifier
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(color.copy(alpha = if (doneThatDay) 1f else 0.18f))
-                    .size(9.dp)
-            )
+        items(cells) { day ->
+            if (day == null) {
+                Box(Modifier.size(9.dp))
+            } else {
+                val doneThatDay = completions.containsKey(day.toString())
+                Box(
+                    Modifier
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(color.copy(alpha = if (doneThatDay) 1f else 0.18f))
+                        .size(9.dp)
+                )
+            }
         }
     }
 }

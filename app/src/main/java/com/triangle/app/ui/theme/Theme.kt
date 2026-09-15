@@ -12,6 +12,15 @@ import androidx.compose.ui.graphics.Color
 val TriangleOrange = Color(0xFFE85D26)
 val TriangleOrangeDark = Color(0xFFC24710)
 
+// style.css overrides `--accent` to `--brand` (this purple) specifically on
+// the individual/intern Tasks page (`body[data-page="internTasks"] { --accent:
+// var(--brand); }`) — every accent element there (status pills, category
+// pills, date-strip ring) reads brand purple, not the global orange. Shared
+// here so Dashboard and Tasks/Habits reference the same constant instead of
+// duplicating the hex literal.
+val TriangleBrandPurple = Color(0xFF6D5EF5)
+val TriangleBrandPurpleLight = Color(0xFF8B7CF6)
+
 private val LightColors = lightColorScheme(
     primary = TriangleOrange,
     onPrimary = Color.White,

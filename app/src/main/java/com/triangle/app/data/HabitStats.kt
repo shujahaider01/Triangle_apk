@@ -78,4 +78,34 @@ object HabitStats {
 
     fun isCompletedOn(completions: Map<String, HabitCompletionEntry>, dateStr: String): Boolean =
         completions.containsKey(dateStr)
+
+    /**
+     * Faithful port of _buildHabitHeatmap()'s grid math (script.js) — 22
+     * week-columns x 7 day-rows, filled column-major (each column is one
+     * calendar week, Monday..Sunday top-to-bottom) with today pinned to the
+     * bottom-right column, then flattened row-major for a row-major grid
+     * widget (Compose's LazyVerticalGrid fills row-major, same as the CSS
+     * grid source uses). A plain chronological (153 downTo 0) list — what
+     * this was originally ported as — reads left-to-right in date order
+     * instead of week-columns, which is a different (wrong) picture from
+     * the source's GitHub-contribution-graph layout. Cells after today in
+     * today's own column are `null` (not rendered as a normal past/future
+     * square — that partial column is empty, matching source's hmap-sq-empty).
+     */
+    fun heatmapGrid(today: LocalDate = LocalDate.now()): List<LocalDate?> {
+        val todayRow = (today.dayOfWeek.value - 1) // Mon=0..Sun=6
+        val totalDaysBack = 147 + todayRow // 21 full cols * 7 + todayRow
+        val gridStart = today.minusDays(totalDaysBack.toLong())
+        val cells = ArrayList<LocalDate?>(154)
+        for (r in 0 until 7) {
+            for (c in 0 until 22) {
+                if (c == 21 && r > todayRow) {
+                    cells.add(null)
+                } else {
+                    cells.add(gridStart.plusDays((c * 7 + r).toLong()))
+                }
+            }
+        }
+        return cells
+    }
 }
