@@ -69,13 +69,13 @@ fun TaskRowCard(
             .clip(RoundedCornerShape(16.dp))
             .background(MaterialTheme.colorScheme.surface)
             .clickable(interactionSource = interactionSource, indication = null, onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 11.dp),
+            .padding(horizontal = 14.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
             Modifier
                 .size(48.dp)
-                .clip(RoundedCornerShape(13.dp))
+                .clip(CircleShape)
                 .background(if (dark) NeutralIconBgDark else NeutralIconBgLight),
             contentAlignment = Alignment.Center
         ) {
