@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -52,7 +53,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.triangle.app.ui.theme.TriangleGold
+import com.triangle.app.ui.theme.TriangleBrandPurple
 import com.triangle.app.ui.theme.TrianglePageBgDark
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -126,10 +127,10 @@ fun TasksHabitsScreen(
 
 /**
  * The white "hd-wrap" card's contents — date label + performance badge and
- * the month-wide DateStrip (see DateStrip.kt). This screen's accent is gold
- * (TriangleGold), a deliberate deviation from the WebView source's brand
- * purple, matching the reference design the user asked to follow "100%
- * exact" except for the completion-button color.
+ * the month-wide DateStrip (see DateStrip.kt). Accent is brand purple,
+ * matching the WebView source and the user's own follow-up correction
+ * (a gold accent was tried first per an external reference app, but the
+ * user asked to go back to purple).
  */
 @Composable
 private fun DateHeader(state: TasksHabitsUiState, viewModel: TasksHabitsViewModel, activePage: Int) {
@@ -163,7 +164,7 @@ private fun DateHeader(state: TasksHabitsUiState, viewModel: TasksHabitsViewMode
         Spacer(Modifier.height(4.dp))
         DateStrip(
             selectedDate = state.selectedDate,
-            brandColor = TriangleGold,
+            brandColor = TriangleBrandPurple,
             pctForDate = { d -> if (activePage == 0) viewModel.tasksPctForDate(d) else viewModel.habitsPctForDate(d) },
             onSelect = viewModel::selectDate
         )
@@ -226,14 +227,22 @@ private val CATEGORIES: List<Pair<String, ImageVector>> = listOf(
 )
 
 /**
- * Two visually separate pills ("All (N)" / "Due (N)"), not one joined
- * capsule — matches the reference design, which the user asked to follow
- * "100% exact" for this screen's layout (the WebView source's
- * .hd-status-group used a single split capsule instead).
+ * One joined pill split into "All (N)"/"Due (N)" halves (matches
+ * .hd-status-group in the source, and the user's follow-up correction
+ * back to this shape after a two-separate-pills version was tried) —
+ * clicking either half still switches the status filter.
  */
 @Composable
 private fun StatusSegment(totalCount: Int, dueCount: Int, active: String, onSelect: (String) -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    val dark = isSystemInDarkTheme()
+    val border = MaterialTheme.colorScheme.onSurface.copy(alpha = if (dark) 0.18f else 0.13f)
+    Row(
+        Modifier
+            .height(38.dp)
+            .clip(RoundedCornerShape(7.dp))
+            .background(MaterialTheme.colorScheme.surface)
+            .border(1.5.dp, border, RoundedCornerShape(7.dp))
+    ) {
         StatusSegmentItem("All ($totalCount)", active == "All") { onSelect("All") }
         StatusSegmentItem("Due ($dueCount)", active == "Due") { onSelect("Due") }
     }
@@ -241,14 +250,10 @@ private fun StatusSegment(totalCount: Int, dueCount: Int, active: String, onSele
 
 @Composable
 private fun StatusSegmentItem(label: String, active: Boolean, onClick: () -> Unit) {
-    val dark = isSystemInDarkTheme()
-    val border = if (active) TriangleGold else MaterialTheme.colorScheme.onSurface.copy(alpha = if (dark) 0.18f else 0.13f)
     Box(
         Modifier
-            .height(38.dp)
-            .clip(RoundedCornerShape(7.dp))
-            .background(if (active) TriangleGold else MaterialTheme.colorScheme.surface)
-            .border(1.5.dp, border, RoundedCornerShape(7.dp))
+            .fillMaxHeight()
+            .background(if (active) TriangleBrandPurple else Color.Transparent)
             .clickable(onClick = onClick)
             .padding(horizontal = 15.dp),
         contentAlignment = Alignment.Center
@@ -262,11 +267,11 @@ private fun StatusSegmentItem(label: String, active: Boolean, onClick: () -> Uni
     }
 }
 
-/** Matches .hd-cat-pill/.hd-cat-active — icon + label, bordered pill; active = gold border/text, not filled. */
+/** Matches .hd-cat-pill/.hd-cat-active — icon + label, bordered pill; active = brand-purple border/text, not filled. */
 @Composable
 private fun CategoryPill(label: String, icon: ImageVector, active: Boolean, onClick: () -> Unit) {
     val dark = isSystemInDarkTheme()
-    val border = if (active) TriangleGold else MaterialTheme.colorScheme.onSurface.copy(alpha = if (dark) 0.18f else 0.13f)
+    val border = if (active) TriangleBrandPurple else MaterialTheme.colorScheme.onSurface.copy(alpha = if (dark) 0.18f else 0.13f)
     Row(
         Modifier
             .height(38.dp)
@@ -278,8 +283,8 @@ private fun CategoryPill(label: String, icon: ImageVector, active: Boolean, onCl
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Icon(icon, contentDescription = null, tint = if (active) TriangleGold else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f), modifier = Modifier.size(13.dp))
-        Text(label, fontSize = 11.sp, fontWeight = if (active) FontWeight.Bold else FontWeight.SemiBold, color = if (active) TriangleGold else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f))
+        Icon(icon, contentDescription = null, tint = if (active) TriangleBrandPurple else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f), modifier = Modifier.size(13.dp))
+        Text(label, fontSize = 11.sp, fontWeight = if (active) FontWeight.Bold else FontWeight.SemiBold, color = if (active) TriangleBrandPurple else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f))
     }
 }
 
