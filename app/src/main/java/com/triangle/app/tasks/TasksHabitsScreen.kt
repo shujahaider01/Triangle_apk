@@ -299,6 +299,7 @@ private fun TasksPane(state: TasksHabitsUiState, viewModel: TasksHabitsViewModel
         return
     }
     LazyColumn(
+        modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(12.dp, 12.dp, 12.dp, 100.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
@@ -325,6 +326,7 @@ private fun HabitsPane(state: TasksHabitsUiState, viewModel: TasksHabitsViewMode
         return
     }
     LazyColumn(
+        modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(12.dp, 12.dp, 12.dp, 100.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
