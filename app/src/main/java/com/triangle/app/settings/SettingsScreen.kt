@@ -15,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
 import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -50,6 +51,7 @@ import kotlinx.coroutines.launch
 fun SettingsScreen(
     onOpenNotifications: () -> Unit,
     onOpenChangePassword: () -> Unit,
+    onOpenBackupRestore: () -> Unit,
     onSignedOut: () -> Unit,
     onBack: () -> Unit
 ) {
@@ -71,6 +73,7 @@ fun SettingsScreen(
             Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(surface2)) {
                 SettingsRow(Icons.Default.Notifications, "Notifications", text2, onClick = onOpenNotifications)
                 SettingsRow(Icons.Default.Lock, "Change Password", text2, onClick = onOpenChangePassword)
+                SettingsRow(Icons.Default.CloudSync, "Backup & Restore", text2, onClick = onOpenBackupRestore)
             }
             Row(
                 Modifier

@@ -2,6 +2,7 @@ package com.triangle.app.data
 
 import com.google.firebase.database.FirebaseDatabase
 import com.triangle.app.data.models.Task
+import com.triangle.app.data.models.TaskNote
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
@@ -107,6 +108,20 @@ object TaskRepository {
         historyRef.setValue(listOf(entry) + history).await() // unshift — newest first, matches source
 
         CoinWallet.award(orgId, uid, task.points, "task", task.title, task.id)
+    }
+
+    /**
+     * Prepends a new note (text or photo) to the task's `notes` timeline —
+     * see TaskNoteRepository for the photo-upload step that produces a
+     * `content` URL before this is called for a photo note. Same
+     * read-modify-write-the-whole-array pattern as every other task
+     * mutation here (tasks are array-shaped in Firebase, not a new
+     * exception).
+     */
+    suspend fun addNote(orgId: String, taskId: String, note: TaskNote) {
+        val current = readTasks(orgId)
+        val updated = current.map { t -> if (t.id == taskId) t.copy(notes = listOf(note) + t.notes) else t }
+        orgData(orgId).child("tasks").setValue(updated.map { it.toMap() }).await()
     }
 
     private suspend fun readTasks(orgId: String): List<Task> =

@@ -1,0 +1,235 @@
+package com.triangle.app.tasks
+
+import android.graphics.Bitmap
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.triangle.app.ui.theme.TriangleBrandPurple
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.roundToInt
+
+private data class CropRatio(val label: String, val value: Float?) // null = "Original" (source bitmap's own aspect)
+
+private val CROP_RATIOS = listOf(
+    CropRatio("Original", null),
+    CropRatio("Square", 1f),
+    CropRatio("4:3", 4f / 3f),
+    CropRatio("16:9", 16f / 9f)
+)
+
+/**
+ * Full-screen pan/pinch-zoom crop tool — a deliberately simplified native
+ * equivalent of the WebView's rte-crop-page (no rotate slider, no freehand
+ * mode; see the Task Notes plan's "explicitly out of scope" section). Lives
+ * as local state inside AddNoteScreen rather than its own nav destination,
+ * since passing a Bitmap through NavController args isn't natural and this
+ * is conceptually one step of "add a photo," not a screen a user backs into.
+ */
+@Composable
+fun PhotoCropView(
+    sourceBitmap: Bitmap,
+    onConfirm: (Bitmap) -> Unit,
+    onCancel: () -> Unit
+) {
+    var ratio by remember { mutableStateOf(CROP_RATIOS[0]) }
+    var scale by remember { mutableFloatStateOf(1f) }
+    var offset by remember { mutableStateOf(Offset.Zero) }
+    var viewportSize by remember { mutableStateOf(IntSize.Zero) }
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .onSizeChanged { viewportSize = it }
+    ) {
+        if (viewportSize.width > 0 && viewportSize.height > 0) {
+            val viewportW = viewportSize.width.toFloat()
+            val viewportH = viewportSize.height.toFloat()
+            val bmpW = sourceBitmap.width.toFloat()
+            val bmpH = sourceBitmap.height.toFloat()
+
+            // "Cover" base scale so the bitmap always fully fills the viewport at scale=1 (before pinch).
+            val baseScale = max(viewportW / bmpW, viewportH / bmpH)
+            val effectiveScale = baseScale * scale
+
+            // Crop frame: target aspect ratio, sized to 86% of the viewport's limiting dimension, centered.
+            val targetAspect = ratio.value ?: (bmpW / bmpH)
+            val maxFrameW = viewportW * 0.86f
+            val maxFrameH = viewportH * 0.72f // leaves room for the top bar + bottom chip row
+            var frameW = maxFrameW
+            var frameH = frameW / targetAspect
+            if (frameH > maxFrameH) {
+                frameH = maxFrameH
+                frameW = frameH * targetAspect
+            }
+            val frameLeft = (viewportW - frameW) / 2f
+            val frameTop = (viewportH - frameH) / 2f
+            val frameRect = Rect(frameLeft, frameTop, frameLeft + frameW, frameTop + frameH)
+
+            // Bitmap pixel (px,py) is drawn (before transform) at local Image
+            // position (px,py) — ContentScale.None means 1:1, top-left
+            // anchored. Scaling from transformOrigin (0,0) then translating
+            // by (translationX,translationY) places screen position =
+            // (translationX,translationY) + (px,py)*effectiveScale — solved
+            // below so the bitmap's own center lands at (viewport center +
+            // pan offset), matching cropBitmap()'s inverse math exactly.
+            val imageCenterOnScreen = Offset(viewportW / 2f, viewportH / 2f) + offset
+            val imgTranslationX = imageCenterOnScreen.x - (bmpW / 2f) * effectiveScale
+            val imgTranslationY = imageCenterOnScreen.y - (bmpH / 2f) * effectiveScale
+
+            Image(
+                bitmap = sourceBitmap.asImageBitmap(),
+                contentDescription = null,
+                contentScale = ContentScale.None,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(Unit) {
+                        detectTransformGestures { _, pan, zoom, _ ->
+                            scale = (scale * zoom).coerceIn(1f, 5f)
+                            offset += pan
+                        }
+                    }
+                    .graphicsLayer {
+                        scaleX = effectiveScale
+                        scaleY = effectiveScale
+                        transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0f)
+                        translationX = imgTranslationX
+                        translationY = imgTranslationY
+                    }
+            )
+
+            // Dim mask: four translucent strips around the frame (avoids needing an offscreen punch-hole composite).
+            Canvas(Modifier.fillMaxSize()) {
+                val maskColor = Color.Black.copy(alpha = 0.55f)
+                drawRect(maskColor, topLeft = Offset(0f, 0f), size = Size(size.width, frameRect.top))
+                drawRect(maskColor, topLeft = Offset(0f, frameRect.bottom), size = Size(size.width, size.height - frameRect.bottom))
+                drawRect(maskColor, topLeft = Offset(0f, frameRect.top), size = Size(frameRect.left, frameRect.height))
+                drawRect(maskColor, topLeft = Offset(frameRect.right, frameRect.top), size = Size(size.width - frameRect.right, frameRect.height))
+                drawRect(Color.White, topLeft = frameRect.topLeft, size = frameRect.size, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx()))
+            }
+
+            // Top bar — inset below the (transparent, edge-to-edge) status bar; without this
+            // the row draws under it and its buttons don't reliably receive touches there.
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .windowInsetsPadding(WindowInsets.statusBars)
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                IconButton(onClick = onCancel) { Icon(Icons.Default.Close, contentDescription = "Cancel", tint = Color.White) }
+                Text("Crop Photo", color = Color.White, fontSize = 16.sp, modifier = Modifier.align(Alignment.CenterVertically))
+                IconButton(onClick = {
+                    val cropped = cropBitmap(sourceBitmap, frameRect, viewportW, viewportH, effectiveScale, offset)
+                    onConfirm(cropped)
+                }) { Icon(Icons.Default.Check, contentDescription = "Confirm", tint = TriangleBrandPurple) }
+            }
+
+            // Aspect-ratio chip row
+            Row(
+                Modifier.fillMaxWidth().align(Alignment.BottomCenter).padding(bottom = 32.dp),
+                horizontalArrangement = Arrangement.Center
+            ) {
+                CROP_RATIOS.forEach { r ->
+                    val active = r == ratio
+                    Box(
+                        Modifier
+                            .padding(horizontal = 6.dp)
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(if (active) TriangleBrandPurple else Color.White.copy(alpha = 0.15f))
+                            .clickable { ratio = r; scale = 1f; offset = Offset.Zero }
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                    ) {
+                        Text(r.label, color = Color.White, fontSize = 13.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Maps the crop frame (viewport space) back into source-bitmap pixel space
+ * and crops. The image is drawn top-start at its natural size, scaled by
+ * `effectiveScale` around its own center, then the whole thing is
+ * translated so that center lands at (viewport center + offset) — i.e. the
+ * same "cover, then pan/zoom from center" model a typical native photo
+ * cropper uses.
+ */
+private fun cropBitmap(
+    source: Bitmap,
+    frameRect: Rect,
+    viewportW: Float,
+    viewportH: Float,
+    effectiveScale: Float,
+    offset: Offset
+): Bitmap {
+    val bmpW = source.width.toFloat()
+    val bmpH = source.height.toFloat()
+    val viewportCenter = Offset(viewportW / 2f, viewportH / 2f)
+    val imageCenterOnScreen = viewportCenter + offset
+
+    fun screenToBitmap(p: Offset): Offset {
+        val dx = (p.x - imageCenterOnScreen.x) / effectiveScale
+        val dy = (p.y - imageCenterOnScreen.y) / effectiveScale
+        return Offset(bmpW / 2f + dx, bmpH / 2f + dy)
+    }
+
+    val topLeft = screenToBitmap(frameRect.topLeft)
+    val bottomRight = screenToBitmap(frameRect.bottomRight)
+
+    val left = topLeft.x.coerceIn(0f, bmpW)
+    val top = topLeft.y.coerceIn(0f, bmpH)
+    val right = bottomRight.x.coerceIn(0f, bmpW)
+    val bottom = bottomRight.y.coerceIn(0f, bmpH)
+    val width = (right - left).coerceAtLeast(1f)
+    val height = (bottom - top).coerceAtLeast(1f)
+
+    return Bitmap.createBitmap(
+        source,
+        left.roundToInt(),
+        top.roundToInt(),
+        min(width.roundToInt(), source.width - left.roundToInt()),
+        min(height.roundToInt(), source.height - top.roundToInt())
+    )
+}

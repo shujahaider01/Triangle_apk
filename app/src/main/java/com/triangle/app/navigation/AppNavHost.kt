@@ -47,12 +47,15 @@ import com.triangle.app.rewards.RewardSettingsScreen
 import com.triangle.app.rewards.RewardStoreScreen
 import com.triangle.app.rewards.RewardWalletScreen
 import com.triangle.app.rewards.RewardsViewModel
+import com.triangle.app.tasks.AddNoteScreen
 import com.triangle.app.tasks.CreateEditHabitScreen
 import com.triangle.app.tasks.CreateEditTaskScreen
 import com.triangle.app.tasks.HabitDetailScreen
 import com.triangle.app.tasks.TaskDetailScreen
 import com.triangle.app.tasks.TasksHabitsScreen
 import com.triangle.app.tasks.TasksHabitsViewModel
+import com.triangle.app.settings.BackupRestoreScreen
+import com.triangle.app.settings.BackupRestoreViewModel
 import com.triangle.app.settings.ChangePasswordScreen
 import com.triangle.app.settings.SettingsScreen
 
@@ -63,6 +66,7 @@ private const val ROUTE_PROFILE = "profile"
 private const val ROUTE_NOTIFICATIONS = "notifications"
 private const val ROUTE_SETTINGS = "settings"
 private const val ROUTE_CHANGE_PASSWORD = "changePassword"
+private const val ROUTE_BACKUP_RESTORE = "backupRestore"
 private const val ROUTE_LEADERBOARD = "leaderboard"
 private const val ROUTE_DM_GRAPH = "dmGraph"
 private const val ROUTE_DM_INBOX = "dmInbox"
@@ -85,6 +89,7 @@ private const val ROUTE_EDIT_TASK = "editTask/{taskId}"
 private const val ROUTE_HABIT_DETAIL = "habitDetail/{habitId}"
 private const val ROUTE_CREATE_HABIT = "createHabit"
 private const val ROUTE_EDIT_HABIT = "editHabit/{habitId}"
+private const val ROUTE_ADD_TASK_NOTE = "addTaskNote/{taskId}"
 
 /**
  * App-wide navigation shell — every screen is now a native Compose
@@ -223,6 +228,7 @@ fun AppNavHost(activity: MainActivity) {
             SettingsScreen(
                 onOpenNotifications = { navController.navigate(ROUTE_NOTIFICATIONS) },
                 onOpenChangePassword = { navController.navigate(ROUTE_CHANGE_PASSWORD) },
+                onOpenBackupRestore = { navController.navigate(ROUTE_BACKUP_RESTORE) },
                 onSignedOut = {
                     session = null
                     navController.navigate(ROUTE_LOGIN) { popUpTo(0) }
@@ -235,6 +241,22 @@ fun AppNavHost(activity: MainActivity) {
                 onDone = { navController.popBackStack() },
                 onBack = { navController.popBackStack() }
             )
+        }
+
+        // ── Backup & Restore (restored, see the Task Notes / Drive OAuth
+        // plan) — Drive OAuth is scoped to this feature only; task-note
+        // photos upload to Firebase Storage instead, unrelated to whether
+        // Drive is connected.
+        composable(ROUTE_BACKUP_RESTORE) {
+            val currentSession = session
+            if (currentSession == null) {
+                LaunchedEffect(Unit) { navController.navigate(ROUTE_LOGIN) { popUpTo(0) } }
+            } else {
+                val backupViewModel: BackupRestoreViewModel = viewModel(
+                    factory = viewModelFactory { initializer { BackupRestoreViewModel(currentSession) } }
+                )
+                BackupRestoreScreen(viewModel = backupViewModel, onBack = { navController.popBackStack() })
+            }
         }
 
         // ── Leaderboard (Milestone 6) — one-shot global ranking fetch, no
@@ -465,9 +487,20 @@ fun AppNavHost(activity: MainActivity) {
                         task = task,
                         canEdit = task.isPersonal && task.createdBy == currentSession.uid,
                         onEdit = { navController.navigate("editTask/${task.id}") },
+                        onAddNote = { navController.navigate("addTaskNote/${task.id}") },
                         onBack = { navController.popBackStack() }
                     )
                 }
+            }
+            composable(ROUTE_ADD_TASK_NOTE, arguments = listOf(navArgument("taskId") { type = NavType.StringType })) { backStackEntry ->
+                val currentSession = session ?: return@composable
+                val taskId = backStackEntry.arguments?.getString("taskId") ?: return@composable
+                AddNoteScreen(
+                    session = currentSession,
+                    taskId = taskId,
+                    onSaved = { navController.popBackStack() },
+                    onBack = { navController.popBackStack() }
+                )
             }
             composable(ROUTE_CREATE_TASK) {
                 val currentSession = session ?: return@composable

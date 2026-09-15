@@ -16,6 +16,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.filled.AddCircle
+import coil.compose.AsyncImage
+import com.triangle.app.data.models.TaskNote
+import java.text.DateFormat
+import java.util.Date
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -29,6 +34,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -57,6 +63,7 @@ fun TaskDetailScreen(
     task: Task,
     canEdit: Boolean,
     onEdit: () -> Unit,
+    onAddNote: () -> Unit,
     onBack: () -> Unit
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -141,6 +148,17 @@ fun TaskDetailScreen(
                 }
             }
 
+            Section(title = "Notes") {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    task.notes.sortedByDescending { it.timestamp }.forEach { note -> NoteCard(note) }
+                    TextButton(onClick = onAddNote) {
+                        Icon(Icons.Default.AddCircle, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Add Note")
+                    }
+                }
+            }
+
             Spacer(Modifier.height(8.dp))
             if (done) {
                 OutlinedButton(onClick = { viewModel.setTaskDoneImmediate(task, false) }, modifier = Modifier.fillMaxWidth()) {
@@ -173,5 +191,33 @@ private fun DetailRow(label: String, value: String) {
     Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
         Text(label, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f), modifier = Modifier.weight(1f))
         Text(value, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+/** One entry in the Notes timeline — text notes render their light markup (see NoteMarkdown.kt), photo notes show the Firebase Storage image. */
+@Composable
+private fun NoteCard(note: TaskNote) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            .padding(14.dp)
+    ) {
+        if (note.type == "photo") {
+            AsyncImage(
+                model = note.content,
+                contentDescription = "Note photo",
+                modifier = Modifier.fillMaxWidth().height(180.dp).clip(RoundedCornerShape(10.dp))
+            )
+        } else {
+            Text(parseNoteMarkdown(note.content), fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface)
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(note.timestamp)),
+            fontSize = 11.sp,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
+        )
     }
 }

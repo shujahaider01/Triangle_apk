@@ -70,6 +70,7 @@ dependencies {
     implementation("com.google.firebase:firebase-messaging")
     implementation("com.google.firebase:firebase-auth-ktx")
     implementation("com.google.firebase:firebase-database-ktx")
+    implementation("com.google.firebase:firebase-storage-ktx")
 
     // Google Identity Services — Authorization API (Settings > Integrations
     // Google Drive backup/restore). NOT the deprecated GoogleSignInClient;
@@ -101,6 +102,11 @@ dependencies {
 
     // Lets suspend functions await() a Firebase/Play-Services Task directly.
     implementation(libs.kotlinx.coroutines.play.services)
+
+    // Async image loading for task-note photos (Firebase Storage URLs) and
+    // the crop screen's source image — the project had no image loader
+    // before this feature needed one.
+    implementation("io.coil-kt:coil-compose:2.6.0")
 
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }
