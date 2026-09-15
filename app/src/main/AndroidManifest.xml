@@ -54,21 +54,6 @@
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"
             android:value="@string/default_notification_channel_id" />
-
-        <!-- Lets MainActivity.exportDataToFile() hand the exported JSON file
-             to other apps (Share sheet) via a content:// URI instead of a
-             raw file:// path, which is blocked by StrictMode/FileUriExposed
-             on modern Android. Backs "Export Data" in Settings >
-             Backup & Restore. -->
-        <provider
-            android:name="androidx.core.content.FileProvider"
-            android:authorities="${applicationId}.fileprovider"
-            android:exported="false"
-            android:grantUriPermissions="true">
-            <meta-data
-                android:name="android.support.FILE_PROVIDER_PATHS"
-                android:resource="@xml/file_paths" />
-        </provider>
     </application>
 
 </manifest>

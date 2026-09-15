@@ -5,14 +5,10 @@ import android.content.Context
 /**
  * Tiny SharedPreferences wrapper for caching the device's current FCM token
  * locally. Written to by TxpMessagingService.onNewToken() (called whenever
- * the token is first generated or later rotated) and read by
- * WebAppInterface.getFcmToken() when the web app asks for it on login.
- *
- * Kept as a plain local cache (not synced to Firebase from here) because the
- * *web app* is what knows which logged-in user this device belongs to —
- * native code has no concept of "which intern/admin is logged in," so it
- * just hands the token up to JS and Phase 3's JS is what saves
- * token -> /deviceTokens/{userId} in the Realtime Database.
+ * the token is first generated or later rotated) and read by AppNavHost
+ * once a session is known, so it can register the token via
+ * UserRepository.registerDeviceToken() without waiting on a fresh network
+ * round-trip.
  */
 object TokenStore {
     private const val PREFS_NAME = "txp_prefs"
