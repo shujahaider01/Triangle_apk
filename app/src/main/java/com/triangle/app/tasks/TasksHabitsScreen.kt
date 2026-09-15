@@ -69,6 +69,7 @@ fun TasksHabitsScreen(
     viewModel: TasksHabitsViewModel,
     onOpenTaskDetail: (String) -> Unit,
     onOpenHabitDetail: (String) -> Unit,
+    onOpenHabitAnalytics: (String) -> Unit,
     onCreateTask: () -> Unit,
     onCreateHabit: () -> Unit
 ) {
@@ -117,7 +118,7 @@ fun TasksHabitsScreen(
                     if (page == 0) {
                         TasksPane(state = state, viewModel = viewModel, onOpenDetail = onOpenTaskDetail)
                     } else {
-                        HabitsPane(state = state, viewModel = viewModel, onOpenDetail = onOpenHabitDetail)
+                        HabitsPane(state = state, viewModel = viewModel, onOpenDetail = onOpenHabitDetail, onOpenAnalytics = onOpenHabitAnalytics)
                     }
                 }
             }
@@ -316,7 +317,7 @@ private fun TasksPane(state: TasksHabitsUiState, viewModel: TasksHabitsViewModel
 }
 
 @Composable
-private fun HabitsPane(state: TasksHabitsUiState, viewModel: TasksHabitsViewModel, onOpenDetail: (String) -> Unit) {
+private fun HabitsPane(state: TasksHabitsUiState, viewModel: TasksHabitsViewModel, onOpenDetail: (String) -> Unit, onOpenAnalytics: (String) -> Unit) {
     if (state.isLoading) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         return
@@ -340,6 +341,7 @@ private fun HabitsPane(state: TasksHabitsUiState, viewModel: TasksHabitsViewMode
                 doneToday = completionsForHabit.containsKey(dateStr),
                 canComplete = state.selectedDate == java.time.LocalDate.now(),
                 onClick = { onOpenDetail(habit.id) },
+                onOpenAnalytics = { onOpenAnalytics(habit.id) },
                 onCompleteToday = { viewModel.completeHabitToday(habit) }
             )
         }

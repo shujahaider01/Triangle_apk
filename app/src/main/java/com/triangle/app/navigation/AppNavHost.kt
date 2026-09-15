@@ -466,6 +466,7 @@ fun AppNavHost(activity: MainActivity) {
                     viewModel = tasksViewModel,
                     onOpenTaskDetail = { id -> navController.navigate("taskDetail/$id") },
                     onOpenHabitDetail = { id -> navController.navigate("habitDetail/$id") },
+                    onOpenHabitAnalytics = { id -> navController.navigate("habitAnalytics/$id") },
                     onCreateTask = { navController.navigate(ROUTE_CREATE_TASK) },
                     onCreateHabit = { navController.navigate(ROUTE_CREATE_HABIT) }
                 )

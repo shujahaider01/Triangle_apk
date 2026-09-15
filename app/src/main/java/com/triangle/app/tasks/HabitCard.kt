@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -44,7 +45,7 @@ import com.triangle.app.ui.SvgPathIcon
 private val NeutralIconBgLight = Color(0xFFF0F2F5)
 private val NeutralIconBgDark = Color(0xFF2C2C2E)
 
-/** Matches script.js's _buildHabitCard()/.habit-card — icon, name, streak, heatmap, complete-today circle. */
+/** Matches script.js's _buildHabitCard()/.habit-card — icon, name, streak, heatmap, Analytics shortcut + complete-today circle. */
 @Composable
 fun HabitCard(
     habit: Habit,
@@ -53,6 +54,7 @@ fun HabitCard(
     doneToday: Boolean,
     canComplete: Boolean = true,
     onClick: () -> Unit,
+    onOpenAnalytics: () -> Unit,
     onCompleteToday: () -> Unit
 ) {
     val color = runCatching { Color(android.graphics.Color.parseColor(habit.color)) }.getOrDefault(MaterialTheme.colorScheme.primary)
@@ -91,6 +93,19 @@ fun HabitCard(
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                 )
             }
+            // Analytics shortcut — .habit-note-btn: 36dp circle, habitColor-tinted bg/border, icon always black, stopPropagation so it doesn't also open the detail page.
+            Box(
+                Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(color.copy(alpha = 0.125f))
+                    .border(1.5.dp, color.copy(alpha = 0.125f), CircleShape)
+                    .clickable(onClick = onOpenAnalytics),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Default.BarChart, contentDescription = "Analytics", tint = Color.Black, modifier = Modifier.size(18.dp))
+            }
+            Spacer(Modifier.width(8.dp))
             // Checkmark is always rendered; only interactive when viewing today (matches source: past/future days are read-only).
             Box(
                 Modifier
