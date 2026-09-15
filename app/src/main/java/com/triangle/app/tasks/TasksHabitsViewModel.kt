@@ -95,14 +95,15 @@ class TasksHabitsViewModel(private val session: SessionStore.Session) : ViewMode
         val statusFiltered = if (s.taskStatusFilter == "Due") {
             tasksForDate.filter { !isDoneOn(it, completions) }
         } else tasksForDate
-        val catFiltered = if (s.categoryFilter == "All") statusFiltered
-        else statusFiltered.filter { (it.category.ifBlank { "Personal" }) == s.categoryFilter }
+        val catFiltered = (if (s.categoryFilter == "All") statusFiltered
+        else statusFiltered.filter { (it.category.ifBlank { "Personal" }) == s.categoryFilter })
+            .sortedByDescending { it.createdAt } // newest-created on top
 
         val habitsForDate = HabitStats.habitsForDate(habits, dateStr, session.uid)
         val habitStatusFiltered = if (s.habitStatusFilter == "Due") {
             habitsForDate.filter { h -> !(habitCompletions[h.id]?.containsKey(dateStr) ?: false) }
         } else habitsForDate
-        val habitCatFiltered = habitStatusFiltered // habits aren't categorized in the source app
+        val habitCatFiltered = habitStatusFiltered.sortedByDescending { it.createdAt } // habits aren't categorized in the source app; same newest-first order as tasks
 
         _uiState.value = s.copy(
             isLoading = false,

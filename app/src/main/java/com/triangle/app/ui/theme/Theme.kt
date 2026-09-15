@@ -21,6 +21,12 @@ val TriangleOrangeDark = Color(0xFFC24710)
 val TriangleBrandPurple = Color(0xFF6D5EF5)
 val TriangleBrandPurpleLight = Color(0xFF8B7CF6)
 
+// The same [data-page="internDashboard"]/[data-page="internTasks"] page-background
+// gradient (orange -> pink -> purple -> blue) both Dashboard and Tasks/Habits sit
+// on in the source — shared here rather than each screen keeping its own copy.
+val TrianglePageGradientLight = listOf(Color(0xFFFBEEE9), Color(0xFFF3E6EE), Color(0xFFE9E6F5), Color(0xFFE1E4F5))
+val TrianglePageBgDark = Color(0xFF141414)
+
 private val LightColors = lightColorScheme(
     primary = TriangleOrange,
     onPrimary = Color.White,

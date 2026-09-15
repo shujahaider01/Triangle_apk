@@ -57,6 +57,8 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.triangle.app.data.SessionStore
 import com.triangle.app.ui.theme.TriangleBrandPurple
 import com.triangle.app.ui.theme.TriangleBrandPurpleLight
+import com.triangle.app.ui.theme.TrianglePageBgDark
+import com.triangle.app.ui.theme.TrianglePageGradientLight
 
 // ── Design tokens ported 1:1 from style.css (see the same hex values in
 // :root's --brand/--brand-light, .points-big, .idash-analytics-box's inline
@@ -66,8 +68,8 @@ import com.triangle.app.ui.theme.TriangleBrandPurpleLight
 // implementation language changed.
 private val BrandPurple = TriangleBrandPurple
 private val BrandPurpleLight = TriangleBrandPurpleLight
-private val PageGradientLight = listOf(Color(0xFFFBEEE9), Color(0xFFF3E6EE), Color(0xFFE9E6F5), Color(0xFFE1E4F5))
-private val PageBgDark = Color(0xFF141414)
+private val PageGradientLight = TrianglePageGradientLight
+private val PageBgDark = TrianglePageBgDark
 private val CardBgDark = Color(0xFF1C1C1E)
 private val Text2Light = Color(0xFF6B7280)
 private val Text2Dark = Color(0xFF8B92A5)

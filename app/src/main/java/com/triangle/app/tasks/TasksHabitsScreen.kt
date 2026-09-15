@@ -48,13 +48,15 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.triangle.app.ui.theme.TriangleBrandPurple
-import kotlinx.coroutines.launch
+import com.triangle.app.ui.theme.TrianglePageBgDark
+import com.triangle.app.ui.theme.TrianglePageGradientLight
 import java.time.format.DateTimeFormatter
 
 /**
@@ -74,7 +76,7 @@ fun TasksHabitsScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val pagerState = rememberPagerState(pageCount = { 2 })
-    val scope = rememberCoroutineScope()
+    val dark = isSystemInDarkTheme()
 
     Scaffold(
         floatingActionButton = {
@@ -83,69 +85,59 @@ fun TasksHabitsScreen(
             }
         }
     ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding)) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
-                Spacer(Modifier.width(4.dp))
-                PaneTabs(activePage = pagerState.currentPage, onSelect = { page ->
-                    scope.launch { pagerState.animateScrollToPage(page) }
-                })
-            }
+        val bg = if (dark) Modifier.background(TrianglePageBgDark) else Modifier.background(Brush.linearGradient(TrianglePageGradientLight))
+        Box(Modifier.fillMaxSize().padding(padding).then(bg)) {
+            Column(Modifier.fillMaxSize()) {
+                // The date-header (label + DateStrip) is a white, rounded-bottom
+                // card floating on the gradient — matches source's .hd-wrap
+                // (background:#fff; border-radius:0 0 20px 20px), while the
+                // filter row and list below stay transparent on the gradient.
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(if (dark) MaterialTheme.colorScheme.surface else Color.White, RoundedCornerShape(bottomStart = 20.dp, bottomEnd = 20.dp))
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+                    }
+                    DateHeader(state = state, viewModel = viewModel, activePage = pagerState.currentPage)
+                }
 
-            SharedHeader(
-                state = state,
-                viewModel = viewModel,
-                activePage = pagerState.currentPage,
-                showCategoryFilter = pagerState.currentPage == 0
-            )
+                FilterBar(
+                    state = state,
+                    viewModel = viewModel,
+                    activePage = pagerState.currentPage,
+                    showCategoryFilter = pagerState.currentPage == 0
+                )
 
-            HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
-                if (page == 0) {
-                    TasksPane(state = state, viewModel = viewModel, onOpenDetail = onOpenTaskDetail)
-                } else {
-                    HabitsPane(state = state, viewModel = viewModel, onOpenDetail = onOpenHabitDetail)
+                // Tasks and Habits are switched purely by swiping (matches
+                // the source's own scroll-snap two-pane layout) — no tap
+                // target at the top for it.
+                HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
+                    if (page == 0) {
+                        TasksPane(state = state, viewModel = viewModel, onOpenDetail = onOpenTaskDetail)
+                    } else {
+                        HabitsPane(state = state, viewModel = viewModel, onOpenDetail = onOpenHabitDetail)
+                    }
                 }
             }
         }
     }
 }
 
-@Composable
-private fun PaneTabs(activePage: Int, onSelect: (Int) -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        listOf("Tasks" to 0, "Habits" to 1).forEach { (label, page) ->
-            val active = activePage == page
-            Box(
-                Modifier
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(if (active) TriangleBrandPurple.copy(alpha = 0.14f) else Color.Transparent)
-                    .clickable { onSelect(page) }
-                    .padding(horizontal = 14.dp, vertical = 8.dp)
-            ) {
-                Text(label, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = if (active) TriangleBrandPurple else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
-            }
-        }
-    }
-}
-
 /**
- * Native port of _renderSharedHeader() — date label + performance badge,
- * the month-wide DateStrip (see DateStrip.kt), then the All/Due segmented
- * toggle and (Tasks pane only) the category pill row. `--accent` reads as
- * brand purple on this page in the source (body[data-page="internTasks"] {
+ * The white "hd-wrap" card's contents — date label + performance badge and
+ * the month-wide DateStrip (see DateStrip.kt). `--accent` reads as brand
+ * purple on this page in the source (body[data-page="internTasks"] {
  * --accent: var(--brand); }), not the global orange, so every accent here
  * uses TriangleBrandPurple.
  */
 @Composable
-private fun SharedHeader(state: TasksHabitsUiState, viewModel: TasksHabitsViewModel, activePage: Int, showCategoryFilter: Boolean) {
+private fun DateHeader(state: TasksHabitsUiState, viewModel: TasksHabitsViewModel, activePage: Int) {
     val pct = if (activePage == 0) viewModel.tasksPctForDate(state.selectedDate) else viewModel.habitsPctForDate(state.selectedDate)
-    val totalCount = if (activePage == 0) state.taskTotalCount else state.habitTotalCount
-    val dueCount = if (activePage == 0) state.taskDueCount else state.habitDueCount
-    val statusFilter = if (activePage == 0) state.taskStatusFilter else state.habitStatusFilter
-    val setStatusFilter: (String) -> Unit = if (activePage == 0) viewModel::setTaskStatusFilter else viewModel::setHabitStatusFilter
 
     Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -176,18 +168,30 @@ private fun SharedHeader(state: TasksHabitsUiState, viewModel: TasksHabitsViewMo
             pctForDate = { d -> if (activePage == 0) viewModel.tasksPctForDate(d) else viewModel.habitsPctForDate(d) },
             onSelect = viewModel::selectDate
         )
+    }
+}
 
-        Spacer(Modifier.height(8.dp))
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            StatusSegment(totalCount = totalCount, dueCount = dueCount, active = statusFilter, onSelect = setStatusFilter)
-            if (showCategoryFilter) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.horizontalScroll(rememberScrollState())
-                ) {
-                    CATEGORIES.forEach { (label, icon) ->
-                        CategoryPill(label, icon, state.categoryFilter == label) { viewModel.setCategoryFilter(label) }
-                    }
+/** The All/Due segmented toggle and (Tasks pane only) the category pill row — sits transparent on the page gradient, below the white date-header card. */
+@Composable
+private fun FilterBar(state: TasksHabitsUiState, viewModel: TasksHabitsViewModel, activePage: Int, showCategoryFilter: Boolean) {
+    val totalCount = if (activePage == 0) state.taskTotalCount else state.habitTotalCount
+    val dueCount = if (activePage == 0) state.taskDueCount else state.habitDueCount
+    val statusFilter = if (activePage == 0) state.taskStatusFilter else state.habitStatusFilter
+    val setStatusFilter: (String) -> Unit = if (activePage == 0) viewModel::setTaskStatusFilter else viewModel::setHabitStatusFilter
+
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        StatusSegment(totalCount = totalCount, dueCount = dueCount, active = statusFilter, onSelect = setStatusFilter)
+        if (showCategoryFilter) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.horizontalScroll(rememberScrollState())
+            ) {
+                CATEGORIES.forEach { (label, icon) ->
+                    CategoryPill(label, icon, state.categoryFilter == label) { viewModel.setCategoryFilter(label) }
                 }
             }
         }

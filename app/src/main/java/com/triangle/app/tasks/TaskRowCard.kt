@@ -99,17 +99,17 @@ fun TaskRowCard(
                 )
             }
         }
-        Spacer(Modifier.width(10.dp))
+        Spacer(Modifier.width(8.dp))
         if (task.points > 0) {
             Box(
                 Modifier
                     .clip(RoundedCornerShape(20.dp))
                     .background(color.copy(alpha = 0.12f))
-                    .padding(horizontal = 8.dp, vertical = 3.dp)
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
             ) {
-                Text("+${task.points}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = color)
+                Text("+${task.points}", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = color)
             }
-            Spacer(Modifier.width(10.dp))
+            Spacer(Modifier.width(8.dp))
         }
         // Checkmark is always rendered (matches source: pending = tinted bg + dark tick, done = solid bg + white tick).
         Box(
