@@ -46,6 +46,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.triangle.app.data.models.Reward
+import com.triangle.app.navigation.AppBottomNav
+import com.triangle.app.navigation.BottomNavTab
 
 private val StoreCategoryFilters = listOf("all", "digital", "learning", "merch", "office", "physical")
 
@@ -58,7 +60,10 @@ fun RewardStoreScreen(
     onOpenWallet: () -> Unit,
     onOpenHistory: () -> Unit,
     onOpenManage: () -> Unit,
-    onOpenSettings: () -> Unit
+    onOpenSettings: () -> Unit,
+    onOpenHome: () -> Unit,
+    onOpenTasks: () -> Unit,
+    onOpenProfile: () -> Unit
 ) {
     val state by viewModel.uiState.collectAsState()
     val palette = rewardsPalette()
@@ -66,6 +71,9 @@ fun RewardStoreScreen(
     var menuOpen by remember { mutableStateOf(false) }
 
     Scaffold(
+        bottomBar = {
+            AppBottomNav(active = BottomNavTab.REWARDS, onHome = onOpenHome, onTasks = onOpenTasks, onRewards = {}, onProfile = onOpenProfile)
+        },
         topBar = {
             TopAppBar(
                 title = { Text("Rewards", fontWeight = FontWeight.Bold) },

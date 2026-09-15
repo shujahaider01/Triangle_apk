@@ -27,6 +27,14 @@ val TriangleBrandPurpleLight = Color(0xFF8B7CF6)
 val TrianglePageGradientLight = listOf(Color(0xFFFBEEE9), Color(0xFFF3E6EE), Color(0xFFE9E6F5), Color(0xFFE1E4F5))
 val TrianglePageBgDark = Color(0xFF141414)
 
+// Shared "secondary text" / dark-mode card colors — originally Dashboard-
+// only, now also backing the bottom nav bar (shared across Dashboard/
+// Tasks/Profile/Rewards, see navigation/AppBottomNav.kt) so every screen
+// that shows it renders identical colors instead of each keeping its own copy.
+val TriangleCardBgDark = Color(0xFF1C1C1E)
+val TriangleText2Light = Color(0xFF6B7280)
+val TriangleText2Dark = Color(0xFF8B92A5)
+
 private val LightColors = lightColorScheme(
     primary = TriangleOrange,
     onPrimary = Color.White,

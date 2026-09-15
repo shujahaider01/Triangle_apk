@@ -39,6 +39,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.triangle.app.data.SessionStore
+import com.triangle.app.navigation.AppBottomNav
+import com.triangle.app.navigation.BottomNavTab
 
 /**
  * Native port of renderInternProfile() — sticky purple hero + Overview/
@@ -48,12 +50,22 @@ import com.triangle.app.data.SessionStore
  * [[project-individual-only-scope]]).
  */
 @Composable
-fun ProfileScreen(session: SessionStore.Session, onBack: () -> Unit) {
+fun ProfileScreen(
+    session: SessionStore.Session,
+    onBack: () -> Unit,
+    onOpenHome: () -> Unit,
+    onOpenTasks: () -> Unit,
+    onOpenRewards: () -> Unit
+) {
     val viewModel: ProfileViewModel = viewModel(factory = viewModelFactory { initializer { ProfileViewModel(session) } })
     val state by viewModel.uiState.collectAsState()
     val palette = profilePalette()
 
-    Scaffold { padding ->
+    Scaffold(
+        bottomBar = {
+            AppBottomNav(active = BottomNavTab.PROFILE, onHome = onOpenHome, onTasks = onOpenTasks, onRewards = onOpenRewards, onProfile = {})
+        }
+    ) { padding ->
         Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
             when {
                 state.isLoading -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {

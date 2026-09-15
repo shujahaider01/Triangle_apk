@@ -53,6 +53,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.triangle.app.navigation.AppBottomNav
+import com.triangle.app.navigation.BottomNavTab
 import com.triangle.app.ui.theme.TriangleBrandPurple
 import com.triangle.app.ui.theme.TrianglePageBgDark
 import java.time.LocalDate
@@ -71,7 +73,10 @@ fun TasksHabitsScreen(
     onOpenHabitDetail: (String) -> Unit,
     onOpenHabitAnalytics: (String) -> Unit,
     onCreateTask: () -> Unit,
-    onCreateHabit: () -> Unit
+    onCreateHabit: () -> Unit,
+    onOpenHome: () -> Unit,
+    onOpenRewards: () -> Unit,
+    onOpenProfile: () -> Unit
 ) {
     val state by viewModel.uiState.collectAsState()
     val pagerState = rememberPagerState(pageCount = { 2 })
@@ -82,6 +87,9 @@ fun TasksHabitsScreen(
             FloatingActionButton(onClick = { if (pagerState.currentPage == 0) onCreateTask() else onCreateHabit() }) {
                 Icon(Icons.Default.Add, contentDescription = "Create")
             }
+        },
+        bottomBar = {
+            AppBottomNav(active = BottomNavTab.TASKS, onHome = onOpenHome, onTasks = {}, onRewards = onOpenRewards, onProfile = onOpenProfile)
         }
     ) { padding ->
         // Plain, non-gradient background — matches the reference design

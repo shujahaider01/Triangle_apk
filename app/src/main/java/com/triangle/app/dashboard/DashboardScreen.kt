@@ -24,14 +24,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Article
-import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.CardGiftcard
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.EventAvailable
-import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.RateReview
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -55,8 +52,13 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.triangle.app.data.SessionStore
+import com.triangle.app.navigation.AppBottomNav
+import com.triangle.app.navigation.BottomNavTab
 import com.triangle.app.ui.theme.TriangleBrandPurple
 import com.triangle.app.ui.theme.TriangleBrandPurpleLight
+import com.triangle.app.ui.theme.TriangleCardBgDark
+import com.triangle.app.ui.theme.TriangleText2Dark
+import com.triangle.app.ui.theme.TriangleText2Light
 import com.triangle.app.ui.theme.TrianglePageBgDark
 import com.triangle.app.ui.theme.TrianglePageGradientLight
 
@@ -70,9 +72,9 @@ private val BrandPurple = TriangleBrandPurple
 private val BrandPurpleLight = TriangleBrandPurpleLight
 private val PageGradientLight = TrianglePageGradientLight
 private val PageBgDark = TrianglePageBgDark
-private val CardBgDark = Color(0xFF1C1C1E)
-private val Text2Light = Color(0xFF6B7280)
-private val Text2Dark = Color(0xFF8B92A5)
+private val CardBgDark = TriangleCardBgDark
+private val Text2Light = TriangleText2Light
+private val Text2Dark = TriangleText2Dark
 
 private data class Category(
     val name: String,
@@ -111,7 +113,9 @@ fun DashboardScreen(
     val dark = isSystemInDarkTheme()
 
     Scaffold(
-        bottomBar = { DashboardBottomNav(onOpenTasks = onOpenTasks, onOpenProfile = onOpenProfile, onOpenRewards = onOpenRewards) }
+        bottomBar = {
+            AppBottomNav(active = BottomNavTab.HOME, onHome = {}, onTasks = onOpenTasks, onRewards = onOpenRewards, onProfile = onOpenProfile)
+        }
     ) { padding ->
         val bg = if (dark) Modifier.background(PageBgDark) else Modifier.background(Brush.linearGradient(PageGradientLight))
         Box(Modifier.fillMaxSize().then(bg)) {
@@ -306,51 +310,6 @@ private fun DashboardContent(
             }
 
             Spacer(Modifier.height(24.dp))
-        }
-    }
-}
-
-/**
- * Flat bar, icon-over-label pills, purple active tint — matches
- * .duo-nav/.duo-nav-btn/.duo-nav-pill in style.css (the intern/individual
- * nav uses --brand purple for its active tab, not the global orange
- * --accent Admin uses) rather than Material3's default NavigationBar pill
- * indicator, which looks visibly different from the WebView app.
- */
-@Composable
-private fun DashboardBottomNav(onOpenTasks: () -> Unit, onOpenProfile: () -> Unit, onOpenRewards: () -> Unit) {
-    val dark = isSystemInDarkTheme()
-    val barBg = if (dark) CardBgDark else Color.White
-    val text2 = if (dark) Text2Dark else Text2Light
-
-    data class NavItem(val label: String, val icon: ImageVector, val onClick: (() -> Unit)?, val active: Boolean)
-
-    val items = listOf(
-        NavItem("Home", Icons.Default.Home, null, true),
-        NavItem("Tasks", Icons.AutoMirrored.Filled.List, onOpenTasks, false),
-        NavItem("Rewards", Icons.Default.CardGiftcard, onOpenRewards, false),
-        NavItem("Profile", Icons.Default.Person, onOpenProfile, false)
-    )
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(barBg)
-            .padding(vertical = 8.dp),
-        horizontalArrangement = Arrangement.SpaceAround
-    ) {
-        items.forEach { item ->
-            val color = if (item.active) BrandPurple else text2
-            Column(
-                modifier = Modifier
-                    .clickable(enabled = item.onClick != null) { item.onClick?.invoke() }
-                    .padding(horizontal = 12.dp, vertical = 4.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Icon(item.icon, contentDescription = item.label, tint = color, modifier = Modifier.size(24.dp))
-                Spacer(Modifier.height(4.dp))
-                Text(item.label, fontSize = 11.sp, fontWeight = if (item.active) FontWeight.Bold else FontWeight.SemiBold, color = color)
-            }
         }
     }
 }

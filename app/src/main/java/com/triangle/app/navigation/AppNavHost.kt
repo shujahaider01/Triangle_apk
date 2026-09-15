@@ -17,6 +17,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import androidx.navigation.NavController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -92,6 +93,25 @@ private const val ROUTE_CREATE_HABIT = "createHabit"
 private const val ROUTE_EDIT_HABIT = "editHabit/{habitId}"
 private const val ROUTE_ADD_TASK_NOTE = "addTaskNote/{taskId}"
 private const val ROUTE_HABIT_ANALYTICS = "habitAnalytics/{habitId}"
+
+/**
+ * Bottom-nav "switch tab" navigation, shared by the four top-level screens
+ * that now show AppBottomNav (Dashboard, Tasks/Habits, Profile, Rewards
+ * Store) — pops everything above Dashboard before pushing the new section,
+ * so tapping between tabs never stacks screens indefinitely (back from any
+ * of them goes straight to Dashboard, not back through every tab visited).
+ */
+private fun switchTab(navController: NavController, route: String) {
+    navController.navigate(route) {
+        popUpTo(ROUTE_DASHBOARD) { inclusive = false }
+        launchSingleTop = true
+    }
+}
+
+/** Home tap from within a tab — just pop back to the already-live Dashboard instance instead of recreating it. */
+private fun goHome(navController: NavController) {
+    navController.popBackStack(ROUTE_DASHBOARD, inclusive = false)
+}
 
 /**
  * App-wide navigation shell — every screen is now a native Compose
@@ -177,9 +197,9 @@ fun AppNavHost(activity: MainActivity) {
                 }
                 DashboardScreen(
                     session = currentSession,
-                    onOpenTasks = { navController.navigate(ROUTE_TASKS_GRAPH) },
-                    onOpenProfile = { navController.navigate(ROUTE_PROFILE) },
-                    onOpenRewards = { navController.navigate(ROUTE_REWARDS_GRAPH) },
+                    onOpenTasks = { switchTab(navController, ROUTE_TASKS_GRAPH) },
+                    onOpenProfile = { switchTab(navController, ROUTE_PROFILE) },
+                    onOpenRewards = { switchTab(navController, ROUTE_REWARDS_GRAPH) },
                     onOpenNotifications = { navController.navigate(ROUTE_NOTIFICATIONS) },
                     onOpenDm = { navController.navigate(ROUTE_DM_GRAPH) },
                     onOpenSettings = { navController.navigate(ROUTE_SETTINGS) },
@@ -197,7 +217,13 @@ fun AppNavHost(activity: MainActivity) {
             if (currentSession == null) {
                 LaunchedEffect(Unit) { navController.navigate(ROUTE_LOGIN) { popUpTo(0) } }
             } else {
-                ProfileScreen(session = currentSession, onBack = { navController.popBackStack() })
+                ProfileScreen(
+                    session = currentSession,
+                    onBack = { navController.popBackStack() },
+                    onOpenHome = { goHome(navController) },
+                    onOpenTasks = { switchTab(navController, ROUTE_TASKS_GRAPH) },
+                    onOpenRewards = { switchTab(navController, ROUTE_REWARDS_GRAPH) }
+                )
             }
         }
 
@@ -353,7 +379,10 @@ fun AppNavHost(activity: MainActivity) {
                     onOpenWallet = { navController.navigate(ROUTE_REWARDS_WALLET) },
                     onOpenHistory = { navController.navigate(ROUTE_REWARDS_HISTORY) },
                     onOpenManage = { navController.navigate(ROUTE_REWARDS_MANAGE) },
-                    onOpenSettings = { navController.navigate(ROUTE_REWARDS_SETTINGS) }
+                    onOpenSettings = { navController.navigate(ROUTE_REWARDS_SETTINGS) },
+                    onOpenHome = { goHome(navController) },
+                    onOpenTasks = { switchTab(navController, ROUTE_TASKS_GRAPH) },
+                    onOpenProfile = { switchTab(navController, ROUTE_PROFILE) }
                 )
             }
             composable(ROUTE_REWARD_DETAIL, arguments = listOf(navArgument("rewardId") { type = NavType.StringType })) { backStackEntry ->
@@ -468,7 +497,10 @@ fun AppNavHost(activity: MainActivity) {
                     onOpenHabitDetail = { id -> navController.navigate("habitDetail/$id") },
                     onOpenHabitAnalytics = { id -> navController.navigate("habitAnalytics/$id") },
                     onCreateTask = { navController.navigate(ROUTE_CREATE_TASK) },
-                    onCreateHabit = { navController.navigate(ROUTE_CREATE_HABIT) }
+                    onCreateHabit = { navController.navigate(ROUTE_CREATE_HABIT) },
+                    onOpenHome = { goHome(navController) },
+                    onOpenRewards = { switchTab(navController, ROUTE_REWARDS_GRAPH) },
+                    onOpenProfile = { switchTab(navController, ROUTE_PROFILE) }
                 )
             }
             composable(ROUTE_TASK_DETAIL, arguments = listOf(navArgument("taskId") { type = NavType.StringType })) { backStackEntry ->
