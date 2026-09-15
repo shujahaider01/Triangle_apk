@@ -465,8 +465,7 @@ fun AppNavHost(activity: MainActivity) {
                     onOpenTaskDetail = { id -> navController.navigate("taskDetail/$id") },
                     onOpenHabitDetail = { id -> navController.navigate("habitDetail/$id") },
                     onCreateTask = { navController.navigate(ROUTE_CREATE_TASK) },
-                    onCreateHabit = { navController.navigate(ROUTE_CREATE_HABIT) },
-                    onBack = { navController.popBackStack() }
+                    onCreateHabit = { navController.navigate(ROUTE_CREATE_HABIT) }
                 )
             }
             composable(ROUTE_TASK_DETAIL, arguments = listOf(navArgument("taskId") { type = NavType.StringType })) { backStackEntry ->

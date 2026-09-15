@@ -131,7 +131,7 @@ private fun DateStripDay(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
-            date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault()).uppercase().take(3),
+            date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault()).take(3),
             fontSize = 11.sp,
             fontWeight = labelWeight,
             color = labelColor

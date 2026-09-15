@@ -27,6 +27,13 @@ val TriangleBrandPurpleLight = Color(0xFF8B7CF6)
 val TrianglePageGradientLight = listOf(Color(0xFFFBEEE9), Color(0xFFF3E6EE), Color(0xFFE9E6F5), Color(0xFFE1E4F5))
 val TrianglePageBgDark = Color(0xFF141414)
 
+// A user-directed style choice for the Tasks/Habits screen specifically —
+// not from the WebView source (which reads brand purple there), but from a
+// reference screenshot of a different app (TickOff) the user asked to match
+// "100% exact" for that screen's layout/accent, keeping only the
+// completion-button color as this app's own per-task tint.
+val TriangleGold = Color(0xFFF5B400)
+
 private val LightColors = lightColorScheme(
     primary = TriangleOrange,
     onPrimary = Color.White,

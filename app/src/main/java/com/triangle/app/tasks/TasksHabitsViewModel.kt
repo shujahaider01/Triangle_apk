@@ -97,13 +97,14 @@ class TasksHabitsViewModel(private val session: SessionStore.Session) : ViewMode
         } else tasksForDate
         val catFiltered = (if (s.categoryFilter == "All") statusFiltered
         else statusFiltered.filter { (it.category.ifBlank { "Personal" }) == s.categoryFilter })
-            .sortedByDescending { it.createdAt } // newest-created on top
+            .sortedByDescending { creationSortKey(it.createdAt, it.id) } // newest-created on top
 
         val habitsForDate = HabitStats.habitsForDate(habits, dateStr, session.uid)
         val habitStatusFiltered = if (s.habitStatusFilter == "Due") {
             habitsForDate.filter { h -> !(habitCompletions[h.id]?.containsKey(dateStr) ?: false) }
         } else habitsForDate
-        val habitCatFiltered = habitStatusFiltered.sortedByDescending { it.createdAt } // habits aren't categorized in the source app; same newest-first order as tasks
+        val habitCatFiltered = habitStatusFiltered
+            .sortedByDescending { creationSortKey(it.createdAt, it.id) } // habits aren't categorized in the source app; same newest-first order as tasks
 
         _uiState.value = s.copy(
             isLoading = false,
@@ -117,6 +118,18 @@ class TasksHabitsViewModel(private val session: SessionStore.Session) : ViewMode
             habitDueCount = habitsForDate.count { h -> !(habitCompletions[h.id]?.containsKey(dateStr) ?: false) }
         )
     }
+
+    /**
+     * `createdAt` is 0 on tasks/habits that predate this field (or were
+     * seeded/imported through a path that never set it) — sorting purely by
+     * createdAt would leave those stuck wherever they happened to sit in the
+     * array instead of a real newest-first order. Both `saveNewTask()` and
+     * `saveNewHabit()` mint ids as `pt-<millis>`/`h-<millis>` (see
+     * CreateEditTaskScreen/CreateEditHabitScreen), so falling back to the
+     * digits in the id is a reliable stand-in creation timestamp.
+     */
+    private fun creationSortKey(createdAt: Long, id: String): Long =
+        createdAt.takeIf { it > 0 } ?: id.filter { it.isDigit() }.toLongOrNull() ?: 0L
 
     private fun tasksForDateFrom(tasks: List<Task>, dateStr: String): List<Task> =
         tasks.filter { t ->
@@ -146,6 +159,24 @@ class TasksHabitsViewModel(private val session: SessionStore.Session) : ViewMode
         val completionsByHabit = allHabitCompletions.value
         val done = forDate.count { h -> completionsByHabit[h.id]?.containsKey(dateStr) ?: false }
         return Math.round(done * 100f / forDate.size)
+    }
+
+    /** Same as tasksPctForDate() but unrounded, for the header's one-decimal "10.0%" display. */
+    fun tasksPctPreciseForDate(date: LocalDate): Double {
+        val forDate = tasksForDateFrom(allTasks.value, date.toString())
+        if (forDate.isEmpty()) return 0.0
+        val completions = allCompletions.value
+        return forDate.count { isDoneOn(it, completions) } * 100.0 / forDate.size
+    }
+
+    /** Same as habitsPctForDate() but unrounded, for the header's one-decimal "10.0%" display. */
+    fun habitsPctPreciseForDate(date: LocalDate): Double {
+        val dateStr = date.toString()
+        val forDate = HabitStats.habitsForDate(allHabits.value, dateStr, session.uid)
+        if (forDate.isEmpty()) return 0.0
+        val completionsByHabit = allHabitCompletions.value
+        val done = forDate.count { h -> completionsByHabit[h.id]?.containsKey(dateStr) ?: false }
+        return done * 100.0 / forDate.size
     }
 
     fun selectDate(date: LocalDate) {

@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -25,18 +24,15 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Apps
-import androidx.compose.material.icons.filled.Autorenew
-import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.School
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Work
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -48,15 +44,17 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.triangle.app.ui.theme.TriangleBrandPurple
+import com.triangle.app.ui.theme.TriangleGold
 import com.triangle.app.ui.theme.TrianglePageBgDark
-import com.triangle.app.ui.theme.TrianglePageGradientLight
+import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
 /**
@@ -71,8 +69,7 @@ fun TasksHabitsScreen(
     onOpenTaskDetail: (String) -> Unit,
     onOpenHabitDetail: (String) -> Unit,
     onCreateTask: () -> Unit,
-    onCreateHabit: () -> Unit,
-    onBack: () -> Unit
+    onCreateHabit: () -> Unit
 ) {
     val state by viewModel.uiState.collectAsState()
     val pagerState = rememberPagerState(pageCount = { 2 })
@@ -85,24 +82,23 @@ fun TasksHabitsScreen(
             }
         }
     ) { padding ->
-        val bg = if (dark) Modifier.background(TrianglePageBgDark) else Modifier.background(Brush.linearGradient(TrianglePageGradientLight))
+        // Plain, non-gradient background — matches the reference design
+        // (a real third-party app screenshot, not the WebView source), which
+        // the user asked to match "100% exact" except for the completion-
+        // button color. No gradient here, unlike Dashboard's page background.
+        val bg = if (dark) Modifier.background(TrianglePageBgDark) else Modifier.background(MaterialTheme.colorScheme.background)
         Box(Modifier.fillMaxSize().padding(padding).then(bg)) {
             Column(Modifier.fillMaxSize()) {
                 // The date-header (label + DateStrip) is a white, rounded-bottom
-                // card floating on the gradient — matches source's .hd-wrap
-                // (background:#fff; border-radius:0 0 20px 20px), while the
-                // filter row and list below stay transparent on the gradient.
+                // card — matches both the WebView's .hd-wrap and the reference's
+                // header card. It's now the true top of the page: no back button,
+                // per the user's explicit request (system back/gesture still works
+                // via MainActivity.onNativeBackPressed).
                 Column(
                     Modifier
                         .fillMaxWidth()
                         .background(if (dark) MaterialTheme.colorScheme.surface else Color.White, RoundedCornerShape(bottomStart = 20.dp, bottomEnd = 20.dp))
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
-                    }
                     DateHeader(state = state, viewModel = viewModel, activePage = pagerState.currentPage)
                 }
 
@@ -130,45 +126,69 @@ fun TasksHabitsScreen(
 
 /**
  * The white "hd-wrap" card's contents — date label + performance badge and
- * the month-wide DateStrip (see DateStrip.kt). `--accent` reads as brand
- * purple on this page in the source (body[data-page="internTasks"] {
- * --accent: var(--brand); }), not the global orange, so every accent here
- * uses TriangleBrandPurple.
+ * the month-wide DateStrip (see DateStrip.kt). This screen's accent is gold
+ * (TriangleGold), a deliberate deviation from the WebView source's brand
+ * purple, matching the reference design the user asked to follow "100%
+ * exact" except for the completion-button color.
  */
 @Composable
 private fun DateHeader(state: TasksHabitsUiState, viewModel: TasksHabitsViewModel, activePage: Int) {
-    val pct = if (activePage == 0) viewModel.tasksPctForDate(state.selectedDate) else viewModel.habitsPctForDate(state.selectedDate)
+    val pct = if (activePage == 0) viewModel.tasksPctPreciseForDate(state.selectedDate) else viewModel.habitsPctPreciseForDate(state.selectedDate)
 
     Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            val label = remember(state.selectedDate) {
-                val today = java.time.LocalDate.now()
-                when (state.selectedDate) {
-                    today -> "Today"
-                    today.minusDays(1) -> "Yesterday"
-                    today.plusDays(1) -> "Tomorrow"
-                    else -> state.selectedDate.format(DateTimeFormatter.ofPattern("EEE, MMM d"))
-                }
-            }
-            Text(label, fontSize = 22.sp, fontWeight = FontWeight.Black, modifier = Modifier.weight(1f))
+            val label = remember(state.selectedDate) { ordinalDateLabel(state.selectedDate) }
+            Text(
+                buildAnnotatedString {
+                    withStyle(SpanStyle(fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface)) {
+                        append(label.first)
+                    }
+                    withStyle(SpanStyle(fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f))) {
+                        append(", ${label.second}")
+                    }
+                },
+                fontSize = 20.sp,
+                modifier = Modifier.weight(1f)
+            )
             Icon(
-                if (activePage == 0) Icons.Default.BarChart else Icons.Default.Autorenew,
+                Icons.Default.Speed,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
                 modifier = Modifier.size(18.dp)
             )
             Spacer(Modifier.width(4.dp))
-            Text("$pct%", fontSize = 17.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface)
+            Text(String.format("%.1f%%", pct), fontSize = 17.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface)
         }
 
         Spacer(Modifier.height(4.dp))
         DateStrip(
             selectedDate = state.selectedDate,
-            brandColor = TriangleBrandPurple,
+            brandColor = TriangleGold,
             pctForDate = { d -> if (activePage == 0) viewModel.tasksPctForDate(d) else viewModel.habitsPctForDate(d) },
             onSelect = viewModel::selectDate
         )
     }
+}
+
+/**
+ * "Today"/"Yesterday"/"Tomorrow"/day-name (bold half) + ordinal date like
+ * "15th Sep" (lighter half) — always shown per the user's request to
+ * "Display full date today, 15th Sep" rather than just "Today" alone.
+ */
+private fun ordinalDateLabel(date: LocalDate): Pair<String, String> {
+    val today = LocalDate.now()
+    val dayWord = when (date) {
+        today -> "Today"
+        today.minusDays(1) -> "Yesterday"
+        today.plusDays(1) -> "Tomorrow"
+        else -> date.format(DateTimeFormatter.ofPattern("EEE"))
+    }
+    val day = date.dayOfMonth
+    val suffix = if (day in 11..13) "th" else when (day % 10) {
+        1 -> "st"; 2 -> "nd"; 3 -> "rd"; else -> "th"
+    }
+    val ordinal = "$day$suffix ${date.format(DateTimeFormatter.ofPattern("MMM"))}"
+    return dayWord to ordinal
 }
 
 /** The All/Due segmented toggle and (Tasks pane only) the category pill row — sits transparent on the page gradient, below the white date-header card. */
@@ -205,30 +225,30 @@ private val CATEGORIES: List<Pair<String, ImageVector>> = listOf(
     "Personal" to Icons.Default.Star
 )
 
-/** Matches .hd-status-group/.hd-status-btn — one pill split into "All (N)"/"Due (N)" segments. */
+/**
+ * Two visually separate pills ("All (N)" / "Due (N)"), not one joined
+ * capsule — matches the reference design, which the user asked to follow
+ * "100% exact" for this screen's layout (the WebView source's
+ * .hd-status-group used a single split capsule instead).
+ */
 @Composable
 private fun StatusSegment(totalCount: Int, dueCount: Int, active: String, onSelect: (String) -> Unit) {
-    val dark = isSystemInDarkTheme()
-    val border = MaterialTheme.colorScheme.onSurface.copy(alpha = if (dark) 0.18f else 0.13f)
-    Row(
-        Modifier
-            .height(38.dp)
-            .clip(RoundedCornerShape(7.dp))
-            .background(MaterialTheme.colorScheme.surface)
-            .border(1.5.dp, border, RoundedCornerShape(7.dp))
-    ) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         StatusSegmentItem("All ($totalCount)", active == "All") { onSelect("All") }
-        Box(Modifier.fillMaxHeight().width(1.5.dp).background(border))
         StatusSegmentItem("Due ($dueCount)", active == "Due") { onSelect("Due") }
     }
 }
 
 @Composable
 private fun StatusSegmentItem(label: String, active: Boolean, onClick: () -> Unit) {
+    val dark = isSystemInDarkTheme()
+    val border = if (active) TriangleGold else MaterialTheme.colorScheme.onSurface.copy(alpha = if (dark) 0.18f else 0.13f)
     Box(
         Modifier
-            .fillMaxHeight()
-            .background(if (active) TriangleBrandPurple else Color.Transparent)
+            .height(38.dp)
+            .clip(RoundedCornerShape(7.dp))
+            .background(if (active) TriangleGold else MaterialTheme.colorScheme.surface)
+            .border(1.5.dp, border, RoundedCornerShape(7.dp))
             .clickable(onClick = onClick)
             .padding(horizontal = 15.dp),
         contentAlignment = Alignment.Center
@@ -242,11 +262,11 @@ private fun StatusSegmentItem(label: String, active: Boolean, onClick: () -> Uni
     }
 }
 
-/** Matches .hd-cat-pill/.hd-cat-active — icon + label, bordered pill; active = brand-purple border/text, not filled. */
+/** Matches .hd-cat-pill/.hd-cat-active — icon + label, bordered pill; active = gold border/text, not filled. */
 @Composable
 private fun CategoryPill(label: String, icon: ImageVector, active: Boolean, onClick: () -> Unit) {
     val dark = isSystemInDarkTheme()
-    val border = if (active) TriangleBrandPurple else MaterialTheme.colorScheme.onSurface.copy(alpha = if (dark) 0.18f else 0.13f)
+    val border = if (active) TriangleGold else MaterialTheme.colorScheme.onSurface.copy(alpha = if (dark) 0.18f else 0.13f)
     Row(
         Modifier
             .height(38.dp)
@@ -258,8 +278,8 @@ private fun CategoryPill(label: String, icon: ImageVector, active: Boolean, onCl
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Icon(icon, contentDescription = null, tint = if (active) TriangleBrandPurple else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f), modifier = Modifier.size(13.dp))
-        Text(label, fontSize = 11.sp, fontWeight = if (active) FontWeight.Bold else FontWeight.SemiBold, color = if (active) TriangleBrandPurple else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f))
+        Icon(icon, contentDescription = null, tint = if (active) TriangleGold else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f), modifier = Modifier.size(13.dp))
+        Text(label, fontSize = 11.sp, fontWeight = if (active) FontWeight.Bold else FontWeight.SemiBold, color = if (active) TriangleGold else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f))
     }
 }
 
