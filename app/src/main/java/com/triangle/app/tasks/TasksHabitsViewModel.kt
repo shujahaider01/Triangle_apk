@@ -238,6 +238,10 @@ class TasksHabitsViewModel(private val session: SessionStore.Session) : ViewMode
         viewModelScope.launch { runCatching { TaskRepository.deleteTask(session.orgId, taskId) } }
     }
 
+    fun toggleChecklistItem(task: Task, itemId: String, done: Boolean) {
+        viewModelScope.launch { runCatching { TaskRepository.toggleChecklistItem(session.orgId, task.id, itemId, done) } }
+    }
+
     fun saveTask(task: Task, isNew: Boolean) {
         viewModelScope.launch {
             runCatching {

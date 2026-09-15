@@ -1,6 +1,7 @@
 package com.triangle.app.data.models
 
 import com.triangle.app.data.HabitPalette
+import com.triangle.app.data.anyToMapList
 
 /**
  * Native model of a `db.habits[]` entry — see script.js's habit-creation
@@ -62,7 +63,9 @@ data class Habit(
     val endDate: String? = null,
     val xpPerCompletion: Int = 5,
     val createdAt: Long = 0L,
-    val createdBy: String? = null
+    val createdBy: String? = null,
+    /** Habit Detail's photo timeline (script.js's habit.photos) — reuses TaskNote's shape since it's generic enough (type/content/userId/userName/role/timestamp), same as Task.notes. */
+    val photos: List<TaskNote> = emptyList()
 ) {
     /** Same rule as script.js's _habitIsInRange(). */
     fun isInRange(dateStr: String): Boolean =
@@ -71,7 +74,8 @@ data class Habit(
     fun toMap(): Map<String, Any?> = mapOf(
         "id" to id, "name" to name, "description" to description, "iconSvg" to iconSvg, "color" to color,
         "assignedTo" to assignedTo, "frequency" to frequency.toMap(), "startDate" to startDate, "endDate" to endDate,
-        "xpPerCompletion" to xpPerCompletion, "createdAt" to createdAt, "createdBy" to createdBy
+        "xpPerCompletion" to xpPerCompletion, "createdAt" to createdAt, "createdBy" to createdBy,
+        "photos" to photos.map { it.toMap() }
     )
 
     companion object {
@@ -90,7 +94,8 @@ data class Habit(
                 endDate = m["endDate"] as? String,
                 xpPerCompletion = ((m["xpPerCompletion"] as? Number)?.toInt() ?: 5).let { if (it > 0) it else 5 },
                 createdAt = (m["createdAt"] as? Number)?.toLong() ?: 0L,
-                createdBy = m["createdBy"]?.toString()
+                createdBy = m["createdBy"]?.toString(),
+                photos = anyToMapList(m["photos"]).mapNotNull { TaskNote.fromMap(it) }
             )
         }
     }

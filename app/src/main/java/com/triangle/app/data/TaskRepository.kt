@@ -124,6 +124,16 @@ object TaskRepository {
         orgData(orgId).child("tasks").setValue(updated.map { it.toMap() }).await()
     }
 
+    /** Live checklist-item toggle — matches script.js's ntdToggleCheckItem(). Same read-modify-write pattern as addNote. */
+    suspend fun toggleChecklistItem(orgId: String, taskId: String, itemId: String, done: Boolean) {
+        val current = readTasks(orgId)
+        val updated = current.map { t ->
+            if (t.id != taskId) t
+            else t.copy(checklist = t.checklist.map { item -> if (item.id == itemId) item.copy(done = done) else item })
+        }
+        orgData(orgId).child("tasks").setValue(updated.map { it.toMap() }).await()
+    }
+
     private suspend fun readTasks(orgId: String): List<Task> =
         anyToMapList(orgData(orgId).child("tasks").get().await().value).mapNotNull { Task.fromMap(it) }
 

@@ -6,27 +6,39 @@ import kotlinx.coroutines.tasks.await
 import java.io.ByteArrayOutputStream
 
 /**
- * Firebase Storage upload for task-note photos — decoupled from Google
+ * Firebase Storage upload for note photos — decoupled from Google
  * Drive on purpose (the user's explicit choice: Drive OAuth is scoped to
  * Settings > Backup & Restore only, so a photo note works whether or not
  * Drive is ever connected). Requires Storage to actually be enabled on the
  * `triangle-apk` Firebase project (Console > Build > Storage > Get
- * started) — it wasn't as of this feature landing; `uploadNotePhoto` will
+ * started) — it wasn't as of this feature landing; these uploads will
  * throw a real exception from the SDK until that's done, surfaced to the
- * UI rather than silently failing.
+ * UI rather than silently failing. Despite the name, this now serves both
+ * Task notes (uploadNotePhoto) and Habit Detail's photo timeline
+ * (uploadHabitPhoto) — the two are otherwise identical (compress, upload,
+ * return a download URL), just scoped under different Storage paths.
  */
 object TaskNoteRepository {
     private fun storage() = FirebaseStorage.getInstance()
 
+    private fun compressJpeg(bitmap: Bitmap): ByteArray = ByteArrayOutputStream().use { stream ->
+        bitmap.compress(Bitmap.CompressFormat.JPEG, 85, stream)
+        stream.toByteArray()
+    }
+
     /** Compresses to JPEG and uploads to taskNotePhotos/{orgId}/{uid}/{taskId}/{timestamp}.jpg — returns the download URL. */
     suspend fun uploadNotePhoto(orgId: String, uid: String, taskId: String, bitmap: Bitmap): String {
-        val bytes = ByteArrayOutputStream().use { stream ->
-            bitmap.compress(Bitmap.CompressFormat.JPEG, 85, stream)
-            stream.toByteArray()
-        }
         val path = "taskNotePhotos/$orgId/$uid/$taskId/${System.currentTimeMillis()}.jpg"
         val ref = storage().reference.child(path)
-        ref.putBytes(bytes).await()
+        ref.putBytes(compressJpeg(bitmap)).await()
+        return ref.downloadUrl.await().toString()
+    }
+
+    /** Same as uploadNotePhoto but for Habit Detail's photo timeline — habitNotePhotos/{orgId}/{uid}/{habitId}/{timestamp}.jpg. */
+    suspend fun uploadHabitPhoto(orgId: String, uid: String, habitId: String, bitmap: Bitmap): String {
+        val path = "habitNotePhotos/$orgId/$uid/$habitId/${System.currentTimeMillis()}.jpg"
+        val ref = storage().reference.child(path)
+        ref.putBytes(compressJpeg(bitmap)).await()
         return ref.downloadUrl.await().toString()
     }
 }

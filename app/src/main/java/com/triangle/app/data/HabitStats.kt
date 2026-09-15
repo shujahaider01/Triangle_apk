@@ -3,7 +3,9 @@ package com.triangle.app.data
 import com.triangle.app.data.models.Habit
 import com.triangle.app.data.models.HabitCompletionEntry
 import java.time.LocalDate
+import java.time.format.TextStyle
 import java.time.temporal.ChronoUnit
+import java.util.Locale
 
 /**
  * Faithful port of script.js's _habitCalcStreak()/_habitCalcScore()/
@@ -66,6 +68,60 @@ object HabitStats {
             day = day.plusDays(1)
         }
         return if (scheduled == 0) 0 else Math.round(done * 100.0 / scheduled).toInt()
+    }
+
+    data class StreakRun(val start: LocalDate, val end: LocalDate, val len: Int)
+
+    /**
+     * Port of _haGetStreakRuns() — walks every scheduled day from the habit's
+     * start date to today and groups consecutive completed days into runs
+     * (a non-scheduled day doesn't break a run; a missed scheduled day
+     * does). Returns runs most-recent-first, same as the source.
+     */
+    fun streakRuns(habit: Habit, completions: Map<String, HabitCompletionEntry>): List<StreakRun> {
+        val start = runCatching { LocalDate.parse(habit.startDate) }.getOrNull() ?: return emptyList()
+        val today = LocalDate.now()
+        val dateSet = completions.keys.mapNotNull { runCatching { LocalDate.parse(it) }.getOrNull() }.toSet()
+
+        val runs = ArrayList<StreakRun>()
+        var curStart: LocalDate? = null
+        var curEnd: LocalDate? = null
+        var curLen = 0
+        var day = start
+        var guard = 0
+        while (!day.isAfter(today) && guard < 730) {
+            if (habit.isInRange(day.toString()) && habit.frequency.isScheduledFor(jsDow(day), day.dayOfMonth)) {
+                if (dateSet.contains(day)) {
+                    if (curStart == null) curStart = day
+                    curEnd = day
+                    curLen++
+                } else if (curLen > 0) {
+                    runs.add(StreakRun(curStart!!, curEnd!!, curLen))
+                    curStart = null; curEnd = null; curLen = 0
+                }
+            }
+            day = day.plusDays(1)
+            guard++
+        }
+        if (curLen > 0) runs.add(StreakRun(curStart!!, curEnd!!, curLen))
+        return runs.reversed()
+    }
+
+    data class MonthCount(val label: String, val count: Int)
+
+    /**
+     * Port of _haGetMonthlyCompletions() — completion counts for a 6-month
+     * window ending this month (offset=0), or the 6 months before that
+     * (offset=1), etc., for the Analytics screen's bar chart.
+     */
+    fun monthlyCompletions(habit: Habit, completions: Map<String, HabitCompletionEntry>, offset: Int): List<MonthCount> {
+        val dates = completions.keys.mapNotNull { runCatching { LocalDate.parse(it) }.getOrNull() }
+        val anchor = LocalDate.now()
+        return (5 downTo 0).map { i ->
+            val d = anchor.minusMonths((offset * 6 + i).toLong()).withDayOfMonth(1)
+            val count = dates.count { it.year == d.year && it.monthValue == d.monthValue }
+            MonthCount(d.month.getDisplayName(TextStyle.SHORT, Locale.getDefault()), count)
+        }
     }
 
     /** Which of this intern's habits are scheduled (and in range) for the given day — mirrors _habitGetHabitsForDate(). */

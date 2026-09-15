@@ -50,6 +50,7 @@ import com.triangle.app.rewards.RewardsViewModel
 import com.triangle.app.tasks.AddNoteScreen
 import com.triangle.app.tasks.CreateEditHabitScreen
 import com.triangle.app.tasks.CreateEditTaskScreen
+import com.triangle.app.tasks.HabitAnalyticsScreen
 import com.triangle.app.tasks.HabitDetailScreen
 import com.triangle.app.tasks.TaskDetailScreen
 import com.triangle.app.tasks.TasksHabitsScreen
@@ -90,6 +91,7 @@ private const val ROUTE_HABIT_DETAIL = "habitDetail/{habitId}"
 private const val ROUTE_CREATE_HABIT = "createHabit"
 private const val ROUTE_EDIT_HABIT = "editHabit/{habitId}"
 private const val ROUTE_ADD_TASK_NOTE = "addTaskNote/{taskId}"
+private const val ROUTE_HABIT_ANALYTICS = "habitAnalytics/{habitId}"
 
 /**
  * App-wide navigation shell — every screen is now a native Compose
@@ -482,6 +484,7 @@ fun AppNavHost(activity: MainActivity) {
                     LaunchedEffect(Unit) { navController.popBackStack() }
                 } else {
                     TaskDetailScreen(
+                        session = currentSession,
                         viewModel = tasksViewModel,
                         task = task,
                         canEdit = task.isPersonal && task.createdBy == currentSession.uid,
@@ -543,9 +546,32 @@ fun AppNavHost(activity: MainActivity) {
                     LaunchedEffect(Unit) { navController.popBackStack() }
                 } else {
                     HabitDetailScreen(
+                        session = currentSession,
                         viewModel = tasksViewModel,
                         habit = habit,
                         onEdit = { navController.navigate("editHabit/${habit.id}") },
+                        onOpenAnalytics = { navController.navigate("habitAnalytics/${habit.id}") },
+                        onBack = { navController.popBackStack() }
+                    )
+                }
+            }
+            composable(ROUTE_HABIT_ANALYTICS, arguments = listOf(navArgument("habitId") { type = NavType.StringType })) { backStackEntry ->
+                val currentSession = session ?: return@composable
+                val graphEntry = remember(backStackEntry) { navController.getBackStackEntry(ROUTE_TASKS_GRAPH) }
+                val tasksViewModel: TasksHabitsViewModel = viewModel(
+                    graphEntry,
+                    factory = viewModelFactory { initializer { TasksHabitsViewModel(currentSession) } }
+                )
+                val habitId = backStackEntry.arguments?.getString("habitId")
+                val habits by tasksViewModel.habits.collectAsState()
+                val habit = habits.firstOrNull { it.id == habitId }
+                if (habit == null) {
+                    LaunchedEffect(Unit) { navController.popBackStack() }
+                } else {
+                    HabitAnalyticsScreen(
+                        session = currentSession,
+                        viewModel = tasksViewModel,
+                        habit = habit,
                         onBack = { navController.popBackStack() }
                     )
                 }

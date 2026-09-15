@@ -3,6 +3,7 @@ package com.triangle.app.data
 import com.google.firebase.database.FirebaseDatabase
 import com.triangle.app.data.models.Habit
 import com.triangle.app.data.models.HabitCompletionEntry
+import com.triangle.app.data.models.TaskNote
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
@@ -102,5 +103,16 @@ object HabitRepository {
 
     suspend fun addHabitNote(orgId: String, uid: String, habitId: String, dateStr: String, text: String) {
         orgData(orgId).child("habitNotes/$uid/$habitId/$dateStr").setValue(text).await()
+    }
+
+    /** One-shot read of the note addHabitNote() wrote for that day — Habit Detail prefills its "Add Note" dialog with this. */
+    suspend fun getHabitNote(orgId: String, uid: String, habitId: String, dateStr: String): String =
+        (orgData(orgId).child("habitNotes/$uid/$habitId/$dateStr").get().await().value as? String) ?: ""
+
+    /** Prepends a photo note to the habit's `photos` timeline — same read-modify-write-whole-array pattern as TaskRepository.addNote. */
+    suspend fun addHabitPhoto(orgId: String, habitId: String, note: TaskNote) {
+        val current = readHabits(orgId)
+        val updated = current.map { h -> if (h.id == habitId) h.copy(photos = listOf(note) + h.photos) else h }
+        orgData(orgId).child("habits").setValue(updated.map { it.toMap() }).await()
     }
 }
