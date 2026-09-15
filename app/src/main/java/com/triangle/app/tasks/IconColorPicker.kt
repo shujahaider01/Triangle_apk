@@ -115,7 +115,7 @@ fun IconColorPicker(
             columns = GridCells.Fixed(7),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.fillMaxWidth().height(200.dp)
+            modifier = Modifier.fillMaxWidth().height(340.dp) // taller than the old 42-icon grid needed — 175 icons is ~25 rows, so more are visible per scroll
         ) {
             items(HabitPalette.ICONS.entries.toList()) { (key, svg) ->
                 val selected = key == selectedIconKey
