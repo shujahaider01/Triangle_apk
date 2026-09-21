@@ -44,6 +44,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -54,6 +58,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -98,6 +103,17 @@ fun TasksHabitsScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val dark = triangleDarkTheme()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val snackbarScope = rememberCoroutineScope()
+    fun showTaskCompletedUndo(task: com.triangle.app.data.models.Task) {
+        snackbarScope.launch {
+            val result = snackbarHostState.showSnackbar("Task completed", actionLabel = "Undo", duration = SnackbarDuration.Short)
+            if (result == SnackbarResult.ActionPerformed) viewModel.undoComplete(task)
+        }
+    }
+    fun showHabitCompletedToast() {
+        snackbarScope.launch { snackbarHostState.showSnackbar("Habit completed!") }
+    }
 
     // Which pane (Tasks vs Habits) to open on is resolved asynchronously
     // (see TasksHabitsViewModel.initialPane's doc comment — it depends on a
@@ -173,6 +189,7 @@ fun TasksHabitsScreen(
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
             FloatingActionButton(onClick = {
                 val isSolo = state.itemMode == ItemMode.SOLO
@@ -253,7 +270,8 @@ fun TasksHabitsScreen(
                             state = state,
                             viewModel = viewModel,
                             onOpenDetail = onOpenTaskDetail,
-                            onOpenAssignedDetail = { assignedTaskDetail = it }
+                            onOpenAssignedDetail = { assignedTaskDetail = it },
+                            onTaskCompleted = ::showTaskCompletedUndo
                         )
                     } else {
                         HabitsPane(
@@ -262,7 +280,8 @@ fun TasksHabitsScreen(
                             onOpenDetail = onOpenHabitDetail,
                             onOpenAnalytics = onOpenHabitAnalytics,
                             onOpenAssignedDetail = { assignedHabitDetail = it },
-                            onOpenAssignedAnalytics = { assignedHabitAnalytics = it }
+                            onOpenAssignedAnalytics = { assignedHabitAnalytics = it },
+                            onHabitCompleted = ::showHabitCompletedToast
                         )
                     }
                 }
@@ -465,7 +484,8 @@ private fun TasksPane(
     state: TasksHabitsUiState,
     viewModel: TasksHabitsViewModel,
     onOpenDetail: (String) -> Unit,
-    onOpenAssignedDetail: (AssignmentRepository.AssignedTaskGroup) -> Unit
+    onOpenAssignedDetail: (AssignmentRepository.AssignedTaskGroup) -> Unit,
+    onTaskCompleted: (com.triangle.app.data.models.Task) -> Unit
 ) {
     if (state.isLoading) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
@@ -489,7 +509,7 @@ private fun TasksPane(
                         task = row.task,
                         done = done,
                         onClick = { onOpenDetail(row.task.id) },
-                        onToggleDone = { viewModel.completeTaskWithUndo(row.task) }
+                        onToggleDone = { viewModel.completeTaskWithUndo(row.task); onTaskCompleted(row.task) }
                     )
                 }
                 is TaskRow.Assigned -> AssignedTaskRowCard(
@@ -516,7 +536,8 @@ private fun HabitsPane(
     onOpenDetail: (String) -> Unit,
     onOpenAnalytics: (String) -> Unit,
     onOpenAssignedDetail: (AssignmentRepository.AssignedHabitGroup) -> Unit,
-    onOpenAssignedAnalytics: (AssignmentRepository.AssignedHabitGroup) -> Unit
+    onOpenAssignedAnalytics: (AssignmentRepository.AssignedHabitGroup) -> Unit,
+    onHabitCompleted: () -> Unit
 ) {
     if (state.isLoading) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
@@ -545,7 +566,7 @@ private fun HabitsPane(
                         canComplete = state.selectedDate == java.time.LocalDate.now(),
                         onClick = { onOpenDetail(row.habit.id) },
                         onOpenAnalytics = { onOpenAnalytics(row.habit.id) },
-                        onCompleteToday = { viewModel.completeHabitToday(row.habit) }
+                        onCompleteToday = { viewModel.completeHabitToday(row.habit); onHabitCompleted() }
                     )
                 }
                 is HabitRow.Assigned -> AssignedHabitRowCard(

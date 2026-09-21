@@ -88,7 +88,7 @@ fun SettingsScreen(
     val dark = triangleDarkTheme()
     val surface2 = if (dark) Color(0xFF1E2738) else Color(0xFFF3F4F6)
     val text2 = if (dark) Color(0xFFA1A1AA) else Color(0xFF6B7280)
-    val themeMode by ThemeStore.modeFlow(context).collectAsState(initial = ThemeMode.SYSTEM)
+    val themeMode by ThemeStore.modeFlow(context).collectAsState(initial = ThemeMode.LIGHT)
     var editingField by remember { mutableStateOf<EditableField?>(null) }
 
     Scaffold(

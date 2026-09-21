@@ -261,22 +261,29 @@ private fun DashboardContent(
             Spacer(Modifier.height(16.dp))
 
             // ── Category shortcuts (horizontal scroll) ──
+            val comingSoonContext = androidx.compose.ui.platform.LocalContext.current
+            fun comingSoonToast() = android.widget.Toast.makeText(comingSoonContext, "Coming soon!", android.widget.Toast.LENGTH_SHORT).show()
             val categories = listOf(
                 Category("Leaderboard", true, Color(0xFFFEF3C7), Color(0xFFD97706), icon = Icons.Outlined.EmojiEvents, onClick = onOpenLeaderboard),
-                Category("Moods", false, Color(0xFFEDE9FE), Color(0xFF8B5CF6), icon = Icons.Outlined.SentimentSatisfied),
-                Category("Reviews", false, Color(0xFFDCFCE7), Color(0xFF22C55E), icon = Icons.Outlined.RateReview),
-                Category("Attendance", false, Color(0xFFFDE2E2), Color(0xFFEF4444), icon = Icons.Outlined.EventAvailable)
+                Category("Moods", false, Color(0xFFEDE9FE), Color(0xFF8B5CF6), icon = Icons.Outlined.SentimentSatisfied, onClick = ::comingSoonToast),
+                Category("Reviews", false, Color(0xFFDCFCE7), Color(0xFF22C55E), icon = Icons.Outlined.RateReview, onClick = ::comingSoonToast),
+                Category("Attendance", false, Color(0xFFFDE2E2), Color(0xFFEF4444), icon = Icons.Outlined.EventAvailable, onClick = ::comingSoonToast)
             )
             Row(
                 modifier = Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 categories.forEach { cat ->
+                    // "enabled" still drives the dimmed look for
+                    // not-yet-built categories, but they're still tappable
+                    // now (to show the "Coming soon!" toast) — only the
+                    // click *handler*, not the click itself, used to be
+                    // conditional on it.
                     val alpha = if (cat.enabled) 1f else 0.45f
                     Column(
                         modifier = Modifier
                             .width(74.dp)
-                            .clickable(enabled = cat.enabled) { cat.onClick?.invoke() },
+                            .clickable { cat.onClick?.invoke() },
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Box(

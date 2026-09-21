@@ -18,7 +18,7 @@ object ThemeStore {
 
     fun modeFlow(context: Context): Flow<ThemeMode> =
         context.themeDataStore.data.map { prefs ->
-            runCatching { ThemeMode.valueOf(prefs[KEY_MODE] ?: "SYSTEM") }.getOrDefault(ThemeMode.SYSTEM)
+            runCatching { ThemeMode.valueOf(prefs[KEY_MODE] ?: "LIGHT") }.getOrDefault(ThemeMode.LIGHT)
         }
 
     suspend fun setMode(context: Context, mode: ThemeMode) {

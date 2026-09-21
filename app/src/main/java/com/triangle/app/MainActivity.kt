@@ -92,7 +92,7 @@ class MainActivity : AppCompatActivity() {
 
         setContent {
             val context = LocalContext.current
-            val mode by ThemeStore.modeFlow(context).collectAsState(initial = ThemeMode.SYSTEM)
+            val mode by ThemeStore.modeFlow(context).collectAsState(initial = ThemeMode.LIGHT)
             val systemDark = isSystemInDarkTheme()
             val darkTheme = when (mode) {
                 ThemeMode.SYSTEM -> systemDark
