@@ -46,6 +46,21 @@ android {
         buildConfigField("String", "EMAILJS_PUBLIC_KEY", "\"${localProp("emailjs.publicKey")}\"")
         buildConfigField("String", "EMAILJS_PRIVATE_KEY", "\"${localProp("emailjs.privateKey")}\"")
     }
+    // Release signing — only configured when local.properties actually has
+    // a keystore (see README note there); a machine without one still
+    // builds *Debug variants fine and just gets an unsigned, uninstallable
+    // *Release like before, instead of a hard Gradle config failure.
+    val hasSigningConfig = localProp("signing.storeFile").isNotBlank()
+    if (hasSigningConfig) {
+        signingConfigs {
+            create("release") {
+                storeFile = rootProject.file(localProp("signing.storeFile"))
+                storePassword = localProp("signing.storePassword")
+                keyAlias = localProp("signing.keyAlias")
+                keyPassword = localProp("signing.keyPassword")
+            }
+        }
+    }
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -53,6 +68,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            if (hasSigningConfig) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 
