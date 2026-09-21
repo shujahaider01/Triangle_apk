@@ -102,10 +102,6 @@ fun PhotoCropView(
             val bmpW = sourceBitmap.width.toFloat()
             val bmpH = sourceBitmap.height.toFloat()
 
-            // "Cover" base scale so the bitmap always fully fills the viewport at scale=1 (before pinch).
-            val baseScale = max(viewportW / bmpW, viewportH / bmpH)
-            val effectiveScale = baseScale * scale
-
             // Crop frame: target aspect ratio, sized to 86% of the viewport's limiting dimension, centered.
             val targetAspect = ratio.value ?: (bmpW / bmpH)
             val maxFrameW = viewportW * 0.86f
@@ -119,6 +115,18 @@ fun PhotoCropView(
             val frameLeft = (viewportW - frameW) / 2f
             val frameTop = (viewportH - frameH) / 2f
             val frameRect = Rect(frameLeft, frameTop, frameLeft + frameW, frameTop + frameH)
+
+            // "Cover" base scale against the crop FRAME, not the whole
+            // viewport — the only real constraint is that the frame itself
+            // must never show non-image content. Basing this on the (much
+            // larger) viewport instead, as before, forced scale=1 to already
+            // be zoomed in past what's needed to cover the frame (why the
+            // default view was more cropped than it needed to be — "full
+            // image" complaint) AND made it impossible to pinch out beyond
+            // that same point (the "can't zoom out" complaint) — one wrong
+            // reference size caused both.
+            val baseScale = max(frameW / bmpW, frameH / bmpH)
+            val effectiveScale = baseScale * scale
 
             // Bitmap pixel (px,py) is drawn (before transform) at local Image
             // position (px,py) — ContentScale.None means 1:1, top-left
