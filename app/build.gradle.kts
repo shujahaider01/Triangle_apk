@@ -55,6 +55,37 @@ android {
             )
         }
     }
+
+    // Environment & Release Management: dev/qa/prod, each its own Firebase
+    // project (see app/src/<flavor>/google-services.json) so DEV/QA testing
+    // never touches production data.
+    flavorDimensions += "environment"
+    productFlavors {
+        create("dev") {
+            dimension = "environment"
+            // Deliberately no applicationIdSuffix — reuses the existing
+            // com.triangle.app registration under the triangle-apk Firebase
+            // project as-is, so dev and prod share one applicationId. Means
+            // a dev build and a real prod build can't be installed
+            // side-by-side on the same device (installing one replaces the
+            // other) — accepted tradeoff, not an oversight.
+            versionNameSuffix = "-dev"
+            resValue("string", "app_name", "Triangle DEV")
+            buildConfigField("String", "ENVIRONMENT", "\"dev\"")
+        }
+        create("qa") {
+            dimension = "environment"
+            applicationId = "com.triangleqa.app" // matches what's registered in the triangle-qa Firebase project
+            versionNameSuffix = "-qa"
+            resValue("string", "app_name", "Triangle QA")
+            buildConfigField("String", "ENVIRONMENT", "\"qa\"")
+        }
+        create("prod") {
+            dimension = "environment"
+            resValue("string", "app_name", "Triangle")
+            buildConfigField("String", "ENVIRONMENT", "\"prod\"")
+        }
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11

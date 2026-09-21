@@ -7,7 +7,11 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -23,7 +27,11 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.triangle.app.data.AppEnvironment
+import com.triangle.app.data.Environment
 import com.triangle.app.ui.theme.TriangleBrandPurple
 import com.triangle.app.ui.theme.TriangleOrange
 import kotlinx.coroutines.delay
@@ -225,6 +233,32 @@ private fun SplashLogo(modifier: Modifier = Modifier) {
 }
 
 /**
+ * Thin strip identifying a non-prod build (Environment & Release Management
+ * PRD §13) so it's obvious at a glance which environment's data a test is
+ * touching. The app runs edge-to-edge (MainActivity's
+ * setDecorFitsSystemWindows(false)), so this pads for the status bar itself
+ * rather than being drawn underneath it.
+ */
+@Composable
+private fun EnvironmentBanner(modifier: Modifier = Modifier) {
+    val (label, color) = when (AppEnvironment.current) {
+        Environment.DEV -> "DEV ENVIRONMENT" to Color(0xFFFF7A1A)
+        Environment.QA -> "QA ENVIRONMENT" to Color(0xFF1A73E8)
+        Environment.PROD -> return
+    }
+    Box(
+        modifier
+            .fillMaxWidth()
+            .statusBarsPadding()
+            .background(color)
+            .padding(vertical = 4.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(label, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+/**
  * App-wide navigation shell — every screen is now a native Compose
  * destination (the WebView was retired in Milestone 7). Session data is
  * passed via plain remembered Compose state rather than NavController route
@@ -270,11 +304,10 @@ fun AppNavHost(activity: MainActivity) {
         onDispose { activity.onNativeBackPressed = null }
     }
 
+    Box(Modifier.fillMaxSize()) {
     if (!sessionLoaded || !minSplashElapsed) {
         SplashGradientScreen()
-        return
-    }
-
+    } else {
     val startDestination = when {
         session == null -> ROUTE_LOGIN
         session?.username.isNullOrBlank() -> ROUTE_USERNAME_SETUP
@@ -789,5 +822,11 @@ fun AppNavHost(activity: MainActivity) {
                 )
             }
         }
+    }
+    }
+
+    if (!AppEnvironment.isProd) {
+        EnvironmentBanner(Modifier.align(Alignment.TopCenter))
+    }
     }
 }
