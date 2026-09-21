@@ -35,11 +35,6 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        // Placeholder until Triangle's own Firebase project exists — see
-        // Firebase Console > Authentication > Sign-in method > Google for
-        // the real "Web client" OAuth ID once that project is created.
-        buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"859625465910-5fu54tsk2ifgn1fhcheaai44skgm2ieq.apps.googleusercontent.com\"")
-
         buildConfigField("String", "EMAILJS_SERVICE_ID", "\"${localProp("emailjs.serviceId")}\"")
         buildConfigField("String", "EMAILJS_TEMPLATE_ID", "\"${localProp("emailjs.templateId")}\"")
         buildConfigField("String", "EMAILJS_INVITE_TEMPLATE_ID", "\"${localProp("emailjs.inviteTemplateId")}\"")
@@ -87,6 +82,14 @@ android {
             versionNameSuffix = "-dev"
             resValue("string", "app_name", "Triangle DEV")
             buildConfigField("String", "ENVIRONMENT", "\"dev\"")
+            // Web client (type 3) OAuth client from triangle-apk's own
+            // google-services.json — each flavor needs ITS OWN project's Web
+            // Client ID for "Continue with Google" (Credential Manager) to
+            // work; using another project's ID here fails with
+            // DEVELOPER_ERROR / "no credentials available" since Google's
+            // backend has no OAuth client for this app+cert under that
+            // other project.
+            buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"859625465910-5fu54tsk2ifgn1fhcheaai44skgm2ieq.apps.googleusercontent.com\"")
         }
         create("qa") {
             dimension = "environment"
@@ -94,12 +97,18 @@ android {
             versionNameSuffix = "-qa"
             resValue("string", "app_name", "Triangle QA")
             buildConfigField("String", "ENVIRONMENT", "\"qa\"")
+            // Web client (type 3) OAuth client from triangle-qa's own
+            // google-services.json (app/src/qa/google-services.json).
+            buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"869644293234-rpinud5jqgq6ndtc1n09u385a7mr2vct.apps.googleusercontent.com\"")
         }
         create("prod") {
             dimension = "environment"
             applicationId = "com.triangle.prod.app" // matches what's registered in the triangle-prod Firebase project; distinct from dev's com.triangle.app so all three flavors can install side-by-side
             resValue("string", "app_name", "Triangle")
             buildConfigField("String", "ENVIRONMENT", "\"prod\"")
+            // Web client (type 3) OAuth client from triangle-prod's own
+            // google-services.json (app/src/prod/google-services.json).
+            buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"872321806616-ma9u4dhm4ili0om6e9hkmurlcpj9ii6v.apps.googleusercontent.com\"")
         }
     }
     compileOptions {
