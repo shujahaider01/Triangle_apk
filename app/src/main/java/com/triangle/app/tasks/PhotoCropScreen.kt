@@ -128,6 +128,17 @@ fun PhotoCropView(
             val baseScale = max(frameW / bmpW, frameH / bmpH)
             val effectiveScale = baseScale * scale
 
+            // How far scale is allowed to go below 1 (frame-cover) — down to
+            // wherever the WHOLE image fits inside the viewport (min, not
+            // max, of the two axis ratios — "fit" rather than "cover").
+            // Below frame-cover the image no longer fills the frame on its
+            // own, but that's fine: cropBitmap() already clamps its crop
+            // rect to the bitmap's real bounds, so zooming out this far just
+            // means "crop everything available" rather than corrupting or
+            // crashing — letting people actually see the whole photo while
+            // deciding where to crop is worth that tradeoff.
+            val minScale = min(viewportW / bmpW, viewportH / bmpH) / baseScale
+
             // Bitmap pixel (px,py) is drawn (before transform) at local Image
             // position (px,py) — ContentScale.None means 1:1, top-left
             // anchored. Scaling from transformOrigin (0,0) then translating
@@ -156,7 +167,7 @@ fun PhotoCropView(
                     .fillMaxSize()
                     .pointerInput(Unit) {
                         detectTransformGestures { _, pan, zoom, _ ->
-                            scale = (scale * zoom).coerceIn(1f, 5f)
+                            scale = (scale * zoom).coerceIn(minScale, 5f)
                             offset += pan
                         }
                     }
