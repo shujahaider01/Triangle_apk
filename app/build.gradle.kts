@@ -65,10 +65,7 @@ android {
             dimension = "environment"
             // Deliberately no applicationIdSuffix — reuses the existing
             // com.triangle.app registration under the triangle-apk Firebase
-            // project as-is, so dev and prod share one applicationId. Means
-            // a dev build and a real prod build can't be installed
-            // side-by-side on the same device (installing one replaces the
-            // other) — accepted tradeoff, not an oversight.
+            // project as-is.
             versionNameSuffix = "-dev"
             resValue("string", "app_name", "Triangle DEV")
             buildConfigField("String", "ENVIRONMENT", "\"dev\"")
@@ -82,6 +79,7 @@ android {
         }
         create("prod") {
             dimension = "environment"
+            applicationId = "com.triangle.prod.app" // matches what's registered in the triangle-prod Firebase project; distinct from dev's com.triangle.app so all three flavors can install side-by-side
             resValue("string", "app_name", "Triangle")
             buildConfigField("String", "ENVIRONMENT", "\"prod\"")
         }
