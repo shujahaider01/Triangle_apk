@@ -190,10 +190,12 @@ fun TaskDetailScreen(
                     title = task.title,
                     pillIcon = Icons.Default.Star,
                     pillText = if (task.points > 0) "${task.points} XP" else "—",
-                    actions = listOf(
-                        DetailHeroAction(Icons.Default.NoteAdd, "Add Note", enabled = !done, onClick = onAddNote),
-                        DetailHeroAction(Icons.Default.AddAPhoto, "Add Photo", enabled = !done, onClick = { showPhotoSheet = true })
-                    ),
+                    actions = buildList {
+                        if (com.triangle.app.data.FeatureFlags.isEnabled(com.triangle.app.data.FeatureFlag.TASK_HABIT_NOTES_ENABLED)) {
+                            add(DetailHeroAction(Icons.Default.NoteAdd, "Add Note", enabled = !done, onClick = onAddNote))
+                            add(DetailHeroAction(Icons.Default.AddAPhoto, "Add Photo", enabled = !done, onClick = { showPhotoSheet = true }))
+                        }
+                    },
                     onBack = onBack,
                     onEdit = if (canEdit) onEdit else null
                 )

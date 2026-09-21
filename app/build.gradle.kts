@@ -141,6 +141,9 @@ dependencies {
     implementation("com.google.firebase:firebase-auth-ktx")
     implementation("com.google.firebase:firebase-database-ktx")
     implementation("com.google.firebase:firebase-storage-ktx")
+    // Remote Config — lets FeatureFlags be toggled per-environment from
+    // each Firebase project's console without shipping a new build.
+    implementation("com.google.firebase:firebase-config-ktx")
 
     // Google Identity Services — Authorization API (Settings > Integrations
     // Google Drive backup/restore). NOT the deprecated GoogleSignInClient;

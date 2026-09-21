@@ -23,11 +23,14 @@ import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.lifecycleScope
 import com.google.firebase.messaging.FirebaseMessaging
+import com.triangle.app.data.FeatureFlags
 import com.triangle.app.data.ThemeMode
 import com.triangle.app.data.ThemeStore
 import com.triangle.app.navigation.AppNavHost
 import com.triangle.app.ui.theme.TriangleTheme
+import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
 
@@ -112,6 +115,7 @@ class MainActivity : AppCompatActivity() {
 
         ensureNotificationPermission()
         fetchAndCacheFcmToken()
+        lifecycleScope.launch { FeatureFlags.refreshFromRemote() }
         captureDeepLinkExtras(intent)
         registerBackHandling()
     }

@@ -176,8 +176,10 @@ private fun DashboardContent(
             IconButton(onClick = onOpenNotifications) {
                 Icon(Icons.Default.Notifications, contentDescription = "Notifications")
             }
-            IconButton(onClick = onOpenDm) {
-                Icon(Icons.AutoMirrored.Filled.Article, contentDescription = "Messages")
+            if (com.triangle.app.data.FeatureFlags.isEnabled(com.triangle.app.data.FeatureFlag.DM_ENABLED)) {
+                IconButton(onClick = onOpenDm) {
+                    Icon(Icons.AutoMirrored.Filled.Article, contentDescription = "Messages")
+                }
             }
         }
 

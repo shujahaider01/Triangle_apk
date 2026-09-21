@@ -186,12 +186,14 @@ fun HabitDetailScreen(
                     title = habit.name,
                     pillIcon = Icons.Default.Autorenew,
                     pillText = freqLabel,
-                    actions = listOf(
-                        DetailHeroAction(Icons.Default.BarChart, "Analytics", onClick = onOpenAnalytics),
-                        DetailHeroAction(Icons.Default.EmojiEvents, "Streak", onClick = { showAchievements = true }),
-                        DetailHeroAction(Icons.Default.NoteAdd, "Add Note", onClick = { showNoteDialog = true }),
-                        DetailHeroAction(Icons.Default.AddAPhoto, "Add Photo", onClick = { showPhotoSheet = true })
-                    ),
+                    actions = buildList {
+                        add(DetailHeroAction(Icons.Default.BarChart, "Analytics", onClick = onOpenAnalytics))
+                        add(DetailHeroAction(Icons.Default.EmojiEvents, "Streak", onClick = { showAchievements = true }))
+                        if (com.triangle.app.data.FeatureFlags.isEnabled(com.triangle.app.data.FeatureFlag.TASK_HABIT_NOTES_ENABLED)) {
+                            add(DetailHeroAction(Icons.Default.NoteAdd, "Add Note", onClick = { showNoteDialog = true }))
+                            add(DetailHeroAction(Icons.Default.AddAPhoto, "Add Photo", onClick = { showPhotoSheet = true }))
+                        }
+                    },
                     onBack = onBack,
                     onEdit = if (canEdit) onEdit else null
                 )
