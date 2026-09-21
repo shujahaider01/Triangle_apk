@@ -14,14 +14,18 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
@@ -52,6 +56,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -114,6 +119,13 @@ fun TasksHabitsScreen(
     fun showHabitCompletedToast() {
         snackbarScope.launch { snackbarHostState.showSnackbar("Habit completed!") }
     }
+
+    // Scroll state of whichever pane's LazyColumn is currently active —
+    // drives the filter/body divider below, which should only appear once
+    // the list has actually scrolled away from its top (see that divider's
+    // own comment for why).
+    val tasksListState = rememberLazyListState()
+    val habitsListState = rememberLazyListState()
 
     // Which pane (Tasks vs Habits) to open on is resolved asynchronously
     // (see TasksHabitsViewModel.initialPane's doc comment — it depends on a
@@ -250,8 +262,22 @@ fun TasksHabitsScreen(
                 // list below — sits outside the HorizontalPager/LazyColumn so
                 // it never scrolls away, and shared by both Tasks and Habits
                 // since it's above the pager rather than inside either pane.
+                // Invisible at rest and only fades in once the active pane's
+                // list has actually scrolled away from its top — otherwise
+                // it just adds a visible line between two things (filter
+                // chips, first list item) that already read as separate.
+                val isPaneScrolled by remember {
+                    derivedStateOf {
+                        val activeState = if (pagerState.currentPage == 0) tasksListState else habitsListState
+                        activeState.firstVisibleItemIndex > 0 || activeState.firstVisibleItemScrollOffset > 0
+                    }
+                }
+                val dividerAlpha by animateFloatAsState(
+                    targetValue = if (isPaneScrolled) (if (dark) 0.14f else 0.09f) else 0f,
+                    label = "taskHabitDividerAlpha"
+                )
                 HorizontalDivider(
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (dark) 0.14f else 0.09f),
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = dividerAlpha),
                     thickness = 1.dp
                 )
 
@@ -269,6 +295,7 @@ fun TasksHabitsScreen(
                         TasksPane(
                             state = state,
                             viewModel = viewModel,
+                            listState = tasksListState,
                             onOpenDetail = onOpenTaskDetail,
                             onOpenAssignedDetail = { assignedTaskDetail = it },
                             onTaskCompleted = ::showTaskCompletedUndo
@@ -277,6 +304,7 @@ fun TasksHabitsScreen(
                         HabitsPane(
                             state = state,
                             viewModel = viewModel,
+                            listState = habitsListState,
                             onOpenDetail = onOpenHabitDetail,
                             onOpenAnalytics = onOpenHabitAnalytics,
                             onOpenAssignedDetail = { assignedHabitDetail = it },
@@ -386,7 +414,11 @@ private fun FilterBar(state: TasksHabitsUiState, viewModel: TasksHabitsViewModel
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+        // Wider gap than the 8.dp between individual chips within each
+        // group below — this is the boundary between two DIFFERENT kinds
+        // of control (mode toggle vs. sub-filter), not just another chip
+        // in the same row, so it reads better with more separation.
+        horizontalArrangement = Arrangement.spacedBy(20.dp)
     ) {
         ModeSegment(sharedCount = sharedCount, soloCount = soloCount, active = state.itemMode, onSelect = viewModel::setItemMode)
         Row(
@@ -434,15 +466,20 @@ private fun ModeSegment(sharedCount: Int, soloCount: Int, active: ItemMode, onSe
             .background(MaterialTheme.colorScheme.surface)
             .border(1.5.dp, border, RoundedCornerShape(7.dp))
     ) {
-        StatusSegmentItem("Shared ($sharedCount)", active == ItemMode.SHARED) { onSelect(ItemMode.SHARED) }
-        StatusSegmentItem("Solo ($soloCount)", active == ItemMode.SOLO) { onSelect(ItemMode.SOLO) }
+        // IntrinsicSize.Max (not weight — this Row isn't width-constrained
+        // by its own parent, so weight alone wouldn't have anything to
+        // distribute) makes both halves match whichever label is wider,
+        // instead of each sizing to its own text ("Shared (12)" vs. "Solo
+        // (3)" previously ending up visibly different widths).
+        StatusSegmentItem("Shared ($sharedCount)", active == ItemMode.SHARED, modifier = Modifier.width(IntrinsicSize.Max)) { onSelect(ItemMode.SHARED) }
+        StatusSegmentItem("Solo ($soloCount)", active == ItemMode.SOLO, modifier = Modifier.width(IntrinsicSize.Max)) { onSelect(ItemMode.SOLO) }
     }
 }
 
 @Composable
-private fun StatusSegmentItem(label: String, active: Boolean, onClick: () -> Unit) {
+private fun StatusSegmentItem(label: String, active: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Box(
-        Modifier
+        modifier
             .fillMaxHeight()
             .background(if (active) TriangleBrandPurple else Color.Transparent)
             .clickable(onClick = onClick)
@@ -483,6 +520,7 @@ private fun CategoryPill(label: String, icon: ImageVector, active: Boolean, onCl
 private fun TasksPane(
     state: TasksHabitsUiState,
     viewModel: TasksHabitsViewModel,
+    listState: LazyListState,
     onOpenDetail: (String) -> Unit,
     onOpenAssignedDetail: (AssignmentRepository.AssignedTaskGroup) -> Unit,
     onTaskCompleted: (com.triangle.app.data.models.Task) -> Unit
@@ -497,6 +535,7 @@ private fun TasksPane(
     }
     var expandedGroup by remember { mutableStateOf<AssignmentRepository.AssignedTaskGroup?>(null) }
     LazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(12.dp, 12.dp, 12.dp, 100.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -533,6 +572,7 @@ private fun TasksPane(
 private fun HabitsPane(
     state: TasksHabitsUiState,
     viewModel: TasksHabitsViewModel,
+    listState: LazyListState,
     onOpenDetail: (String) -> Unit,
     onOpenAnalytics: (String) -> Unit,
     onOpenAssignedDetail: (AssignmentRepository.AssignedHabitGroup) -> Unit,
@@ -550,6 +590,7 @@ private fun HabitsPane(
     var expandedGroup by remember { mutableStateOf<AssignmentRepository.AssignedHabitGroup?>(null) }
     val dateStr = state.selectedDate.toString()
     LazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(12.dp, 12.dp, 12.dp, 100.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
