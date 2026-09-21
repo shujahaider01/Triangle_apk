@@ -157,8 +157,13 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // ── Continue with Google (Credential Manager) ───────────────────────────
-    fun signInWithGoogle() {
-        val context = getApplication<Application>()
+    // Takes the caller's Activity context explicitly — CredentialManager
+    // .getCredential() has to display a picker UI, so it throws
+    // "Failed to launch the selector UI ... context parameter is [not] an
+    // Activity based context" if handed the Application context instead
+    // (getApplication<Application>() is wrong here even though it's the
+    // obvious thing to reach for in an AndroidViewModel).
+    fun signInWithGoogle(context: android.content.Context) {
         viewModelScope.launch {
             setLoading(true)
             try {
