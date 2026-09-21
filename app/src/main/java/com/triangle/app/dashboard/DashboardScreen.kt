@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -175,7 +176,14 @@ private fun DashboardContent(
             }
             androidx.compose.material3.BadgedBox(badge = {
                 if (com.triangle.app.data.FeatureFlags.isEnabled(com.triangle.app.data.FeatureFlag.NOTIFICATION_BADGE_ENABLED) && state.unreadNotifCount > 0) {
-                    androidx.compose.material3.Badge {
+                    androidx.compose.material3.Badge(
+                        // BadgedBox anchors to the IconButton's full 48dp
+                        // touch target, not the visually smaller 24dp icon
+                        // inside it, so the default position sits
+                        // noticeably further from the bell than it looks
+                        // like it should — pull it in toward the icon.
+                        modifier = Modifier.offset(x = (-10).dp, y = 6.dp)
+                    ) {
                         Text(if (state.unreadNotifCount > 9) "9+" else state.unreadNotifCount.toString())
                     }
                 }
