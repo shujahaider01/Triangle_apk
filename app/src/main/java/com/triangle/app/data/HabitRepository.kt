@@ -60,8 +60,8 @@ object HabitRepository {
     /**
      * Matches script.js's completeHabit(): idempotent (a day already marked
      * done is a no-op — there's no un-complete UI anywhere in the source
-     * app either), retried up to twice on failure, points/coins awarded
-     * only on success.
+     * app either), retried up to twice on failure, points awarded only on
+     * success.
      */
     suspend fun completeHabit(orgId: String, uid: String, habit: Habit, dateStr: String) {
         val entryRef = orgData(orgId).child("habitCompletions/$uid/${habit.id}/$dateStr")
@@ -90,8 +90,6 @@ object HabitRepository {
                     val history = anyToMapList(historyRef.get().await().value)
                     val entry = mapOf("type" to "habit", "label" to habit.name, "pts" to xp, "date" to dateStr)
                     historyRef.setValue(listOf(entry) + history).await()
-
-                    CoinWallet.award(orgId, uid, xp, "habit", habit.name, habit.id)
                 }
                 return
             } catch (e: Exception) {

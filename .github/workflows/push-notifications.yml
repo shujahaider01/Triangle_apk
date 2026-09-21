@@ -4,7 +4,7 @@ on:
   schedule:
     # GitHub's minimum cron granularity is 1 minute but scheduled runs are
     # only best-effort and can be delayed under load — 5 minutes keeps this
-    # cheap while still being fast enough for task/reward-style notifications
+    # cheap while still being fast enough for task/habit-style notifications
     # (this is not a chat delivery path; see push-worker/drain.js).
     - cron: '*/5 * * * *'
   workflow_dispatch: {}

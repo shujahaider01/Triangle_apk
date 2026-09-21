@@ -1,66 +1,74 @@
 package com.triangle.app.profile
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.triangle.app.charts.LineAreaChart
 import com.triangle.app.charts.ProgressBarItem
 import com.triangle.app.charts.ProgressBarList
+import com.triangle.app.data.Badges
 
-/** Native port of renderInternProfile()'s Overview tab: 3 KPI cards, Performance Trend, Top Strengths. */
+/** Native port of renderInternProfile()'s Overview tab: 4 equal-size KPI cards, Recent Awards, Top Strengths. */
 @Composable
 fun OverviewTab(state: ProfileUiState, palette: ProfilePalette) {
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(14.dp)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            KpiCard(
-                Modifier.weight(1f), palette, "Performance", "${state.performancePct}%",
-                deltaText(state.performanceDelta, "pt"), ProfileColors.Purple
-            )
-            KpiCard(
-                Modifier.weight(1f), palette, "XP This Month", state.monthXp.toString(),
-                deltaText(state.xpDeltaPct, "%"), Color(0xFF06B6D4)
-            )
-            KpiCard(
-                Modifier.weight(1f), palette, "Coins This Month", state.monthCoins.toString(),
-                null, Color(0xFFFBBF24)
-            )
-        }
-
-        Spacer(Modifier.height(16.dp))
-        Text("Performance Trend", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = palette.text)
-        Text("Weekly completion rate this month", fontSize = 11.5.sp, color = palette.text3)
-        Spacer(Modifier.height(10.dp))
-        Card(palette) {
-            if (state.trendPct.size >= 2) {
-                LineAreaChart(
-                    points = state.trendPct.map { it.toFloat() },
-                    lineColor = ProfileColors.Purple,
-                    maxValueOverride = 100f,
-                    showGridLines = true,
-                    modifier = Modifier.fillMaxWidth().height(140.dp)
-                )
-            } else {
-                EmptyChartNote(palette)
+        // Same content shape (label + big value, no delta line) on all four
+        // cards, plus IntrinsicSize.Min rows + fillMaxHeight children, so
+        // every card is guaranteed the same size regardless of label length.
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                KpiCard(Modifier.weight(1f).fillMaxHeight(), palette, "Performance", "${state.performancePct}%", ProfileColors.Purple)
+                KpiCard(Modifier.weight(1f).fillMaxHeight(), palette, "Total XP", "${state.points}", Color(0xFF06B6D4))
+            }
+            Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                KpiCard(Modifier.weight(1f).fillMaxHeight(), palette, "Tasks Completed", "${state.totalTasksDone}", Color(0xFF22C55E))
+                KpiCard(Modifier.weight(1f).fillMaxHeight(), palette, "Longest Streak", "${state.bestStreak}", Color(0xFFF97316))
             }
         }
 
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(20.dp))
+        Text("Recent Awards", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = palette.text)
+        Spacer(Modifier.height(10.dp))
+        val recentAwards = state.badges.filter { it.earned }.sortedByDescending { it.earnedDate ?: "" }.take(6)
+        if (recentAwards.isEmpty()) {
+            Card(palette) { EmptyChartNote(palette) }
+        } else {
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                recentAwards.forEach { badge -> RecentAwardCell(badge, palette) }
+            }
+        }
+
+        Spacer(Modifier.height(20.dp))
         Text("Top Strengths", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = palette.text)
         Spacer(Modifier.height(10.dp))
         Card(palette) {
@@ -76,7 +84,7 @@ fun OverviewTab(state: ProfileUiState, palette: ProfilePalette) {
 }
 
 @Composable
-private fun KpiCard(modifier: Modifier, palette: ProfilePalette, label: String, value: String, delta: String?, accent: Color) {
+private fun KpiCard(modifier: Modifier, palette: ProfilePalette, label: String, value: String, accent: Color) {
     Column(
         modifier
             .clip(RoundedCornerShape(14.dp))
@@ -86,10 +94,25 @@ private fun KpiCard(modifier: Modifier, palette: ProfilePalette, label: String, 
         Text(label, fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold, color = palette.text2, maxLines = 1)
         Spacer(Modifier.height(6.dp))
         Text(value, fontSize = 19.sp, fontWeight = FontWeight.Black, color = accent)
-        if (delta != null) {
-            Spacer(Modifier.height(2.dp))
-            Text(delta, fontSize = 10.sp, fontWeight = FontWeight.Medium, color = palette.text3)
+    }
+}
+
+@Composable
+private fun RecentAwardCell(badge: Badges.Badge, palette: ProfilePalette) {
+    val accent = Color(android.graphics.Color.parseColor(badge.colorHex))
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(64.dp)) {
+        Box(
+            Modifier
+                .size(48.dp)
+                .shadow(4.dp, CircleShape, clip = false)
+                .clip(CircleShape)
+                .background(Brush.linearGradient(listOf(accent, accent.copy(alpha = 0.65f)))),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(badge.icon, contentDescription = badge.label, tint = Color.White, modifier = Modifier.size(22.dp))
         }
+        Spacer(Modifier.height(6.dp))
+        Text(badge.label, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = palette.text, textAlign = TextAlign.Center, maxLines = 2)
     }
 }
 
@@ -107,11 +130,4 @@ internal fun Card(palette: ProfilePalette, content: @Composable () -> Unit) {
 @Composable
 internal fun EmptyChartNote(palette: ProfilePalette) {
     Text("No data yet", fontSize = 12.5.sp, color = palette.text3, modifier = Modifier.padding(vertical = 24.dp))
-}
-
-private fun deltaText(delta: Int?, unit: String): String? = when {
-    delta == null -> null
-    delta > 0 -> "+$delta$unit vs last month"
-    delta < 0 -> "$delta$unit vs last month"
-    else -> "No change vs last month"
 }

@@ -20,6 +20,7 @@ data class DashboardUiState(
     val isLoading: Boolean = true,
     val error: String? = null,
     val firstName: String = "",
+    val fullName: String = "",
     val points: Int = 0,
     val obediencePercent: Int = 0,
     val rank: Int = 1,
@@ -27,15 +28,15 @@ data class DashboardUiState(
     val longestStreak: Int = 0,
     val currentStreak: Int = 0,
     val weeklyCount: Int = 0,
-    val coinBalance: Int = 0,
     val weeklyXP: Int = 0,
-    val totalTasksAll: Int = 0
+    val totalTasksAll: Int = 0,
+    val tasksCompleted: Int = 0
 )
 
 /**
  * Native port of the DATA half of script.js's renderInternDashboard() —
- * see DashboardStats for the ported pure computations. Points/rank/coin
- * balance/weekly XP/obedience/longest-streak still come from
+ * see DashboardStats for the ported pure computations. Points/rank/weekly
+ * XP/obedience/longest-streak still come from
  * OrgDataRepository's one-shot read (unchanged from Milestone 1 — those
  * aren't part of Milestone 2's scope). "Total Tasks" / "This week: N tasks
  * completed" and "Current Streak" now read from TaskRepository/
@@ -46,7 +47,7 @@ data class DashboardUiState(
  */
 class DashboardViewModel(private val session: SessionStore.Session) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(DashboardUiState(firstName = firstNameOf(session.name)))
+    private val _uiState = MutableStateFlow(DashboardUiState(firstName = firstNameOf(session.name), fullName = session.name))
     val uiState: StateFlow<DashboardUiState> = _uiState.asStateFlow()
 
     init {
@@ -66,7 +67,6 @@ class DashboardViewModel(private val session: SessionStore.Session) : ViewModel(
                     rank = DashboardStats.getRank(snap.memberPoints, session.uid),
                     totalMembers = maxOf(snap.memberPoints.size, 1),
                     longestStreak = DashboardStats.getStreak(snap.tasks, snap.taskCompletions, session.uid),
-                    coinBalance = snap.coinBalance,
                     weeklyXP = snap.weeklyXP
                 )
             } catch (e: Exception) {
@@ -74,6 +74,8 @@ class DashboardViewModel(private val session: SessionStore.Session) : ViewModel(
             }
         }
     }
+
+    private data class TaskHabitStats(val totalTasks: Int, val weeklyCount: Int, val streak: Int, val completed: Int)
 
     private fun observeTasksAndHabits() {
         combine(
@@ -86,12 +88,18 @@ class DashboardViewModel(private val session: SessionStore.Session) : ViewModel(
             val completionsMap: Map<String, Any?> = completions.associateWith { mapOf("done" to true) }
             val totalTasks = DashboardStats.myTasks(taskMaps, session.uid).size
             val weeklyCount = DashboardStats.getWeeklyCount(taskMaps, completionsMap, session.uid)
+            val completed = DashboardStats.getCompletedCount(taskMaps, completionsMap, session.uid)
             val bestCurrentStreak = habits
                 .filter { it.assignedTo.contains(session.uid) }
                 .maxOfOrNull { h -> HabitStats.calcStreak(h, habitCompletions[h.id] ?: emptyMap()).current } ?: 0
-            Triple(totalTasks, weeklyCount, bestCurrentStreak)
-        }.onEach { (totalTasks, weeklyCount, streak) ->
-            _uiState.value = _uiState.value.copy(totalTasksAll = totalTasks, weeklyCount = weeklyCount, currentStreak = streak)
+            TaskHabitStats(totalTasks, weeklyCount, bestCurrentStreak, completed)
+        }.onEach { stats ->
+            _uiState.value = _uiState.value.copy(
+                totalTasksAll = stats.totalTasks,
+                weeklyCount = stats.weeklyCount,
+                currentStreak = stats.streak,
+                tasksCompleted = stats.completed
+            )
         }.launchIn(viewModelScope)
     }
 

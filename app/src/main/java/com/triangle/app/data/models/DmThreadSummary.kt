@@ -13,7 +13,8 @@ data class DmThreadSummary(
     val lastMessage: String,
     val lastMessageAt: Long,
     val unreadCount: Int,
-    val otherUserName: String = ""
+    val otherUserName: String = "",
+    val otherUserPhotoUrl: String? = null
 ) {
     companion object {
         fun fromMap(threadId: String, m: Map<*, *>): DmThreadSummary? {

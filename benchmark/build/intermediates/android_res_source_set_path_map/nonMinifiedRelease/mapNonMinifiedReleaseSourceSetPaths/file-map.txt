@@ -1,0 +1,9 @@
+com.triangle.app.benchmark-pngs-0 C:\Users\ShujaHaider\Desktop\Triangle.app\benchmark\build\generated\res\pngs\nonMinifiedRelease
+com.triangle.app.benchmark-resValues-1 C:\Users\ShujaHaider\Desktop\Triangle.app\benchmark\build\generated\res\resValues\nonMinifiedRelease
+com.triangle.app.benchmark-updated_navigation_xml-2 C:\Users\ShujaHaider\Desktop\Triangle.app\benchmark\build\generated\updated_navigation_xml\nonMinifiedRelease
+com.triangle.app.benchmark-mergeNonMinifiedReleaseResources-3 C:\Users\ShujaHaider\Desktop\Triangle.app\benchmark\build\intermediates\incremental\nonMinifiedRelease\mergeNonMinifiedReleaseResources\merged.dir
+com.triangle.app.benchmark-mergeNonMinifiedReleaseResources-4 C:\Users\ShujaHaider\Desktop\Triangle.app\benchmark\build\intermediates\incremental\nonMinifiedRelease\mergeNonMinifiedReleaseResources\stripped.dir
+com.triangle.app.benchmark-nonMinifiedRelease-5 C:\Users\ShujaHaider\Desktop\Triangle.app\benchmark\build\intermediates\merged_res\nonMinifiedRelease\mergeNonMinifiedReleaseResources
+com.triangle.app.benchmark-main-6 C:\Users\ShujaHaider\Desktop\Triangle.app\benchmark\src\main\res
+com.triangle.app.benchmark-nonMinifiedRelease-7 C:\Users\ShujaHaider\Desktop\Triangle.app\benchmark\src\nonMinifiedRelease\res
+gradleHome-0 C:\Users\ShujaHaider\.gradle

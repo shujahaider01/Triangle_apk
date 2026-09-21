@@ -6,7 +6,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -41,6 +40,7 @@ import com.triangle.app.data.HabitPalette
 import com.triangle.app.data.models.Habit
 import com.triangle.app.data.models.HabitCompletionEntry
 import com.triangle.app.ui.SvgPathIcon
+import com.triangle.app.ui.theme.triangleDarkTheme
 
 private val NeutralIconBgLight = Color(0xFFF0F2F5)
 private val NeutralIconBgDark = Color(0xFF2C2C2E)
@@ -59,7 +59,7 @@ fun HabitCard(
 ) {
     val color = runCatching { Color(android.graphics.Color.parseColor(habit.color)) }.getOrDefault(MaterialTheme.colorScheme.primary)
     val svg = habit.iconSvg ?: HabitPalette.ICONS.getValue(HabitPalette.DEFAULT_ICON_KEY)
-    val dark = isSystemInDarkTheme()
+    val dark = triangleDarkTheme()
 
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()

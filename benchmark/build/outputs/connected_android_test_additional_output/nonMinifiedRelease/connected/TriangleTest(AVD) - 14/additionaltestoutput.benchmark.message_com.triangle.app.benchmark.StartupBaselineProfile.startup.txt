@@ -1,0 +1,16 @@
+NOTE: Your device is running a version of ART where method tracing is known to
+affect performance measurement after trace capture, so method tracing is
+off by default.
+
+To use method tracing, either flash this device, use a different device, or
+enable method tracing with MicrobenchmarkConfig / instrumentation argument, and
+only run one test at a time.
+
+For more information, see https://issuetracker.google.com/issues/316174880
+Delay to await runtime image flush
+StartupBaselineProfile_startup
+Total run time Ns: 74033499513.
+Baseline profile [results](file://StartupBaselineProfile_startup-startup-prof-2026-09-16-15-44-49.txt)
+
+To copy the profile use:
+adb -e pull "/sdcard/Android/media/com.triangle.app.benchmark/additional_test_output/StartupBaselineProfile_startup-startup-prof.txt" .

@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="notification_color">#E85D26</color>
+    <!-- Same value as notification_color / Theme.kt's TriangleOrange — the
+         splash screen's solid background needs a @color resource (the
+         SplashScreen API doesn't accept a gradient drawable there). -->
+    <color name="triangle_orange">#E85D26</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
 </resources>

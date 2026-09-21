@@ -8,6 +8,8 @@ import android.provider.MediaStore
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -28,7 +30,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddAPhoto
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.NoteAdd
 import androidx.compose.material.icons.filled.Star
@@ -60,16 +61,18 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
+import androidx.compose.runtime.LaunchedEffect
 import com.triangle.app.data.HabitPalette
 import com.triangle.app.data.SessionStore
 import com.triangle.app.data.TaskNoteRepository
 import com.triangle.app.data.TaskRepository
+import com.triangle.app.data.UserRepository
 import com.triangle.app.data.models.Task
 import com.triangle.app.data.models.TaskNote
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.time.LocalDate
 
 /**
  * Native port of script.js's _openNewTaskDetail() — the full-bleed colored
@@ -88,7 +91,8 @@ fun TaskDetailScreen(
     canEdit: Boolean,
     onEdit: () -> Unit,
     onAddNote: () -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    highlightOnOpen: Boolean = false
 ) {
     val state by viewModel.uiState.collectAsState()
     val done = viewModel.isDone(task, state.completions)
@@ -96,18 +100,26 @@ fun TaskDetailScreen(
         .getOrDefault(MaterialTheme.colorScheme.primary)
     val svg = task.iconSvg ?: HabitPalette.ICONS.getValue(HabitPalette.DEFAULT_ICON_KEY)
 
-    val statusLabel: String
-    val statusColor: Color
-    when {
-        done -> { statusLabel = "Completed"; statusColor = Color(0xFF22C55E) }
-        !task.dueDate.isNullOrEmpty() && task.dueDate!! < LocalDate.now().toString() -> {
-            statusLabel = "Pending"; statusColor = Color(0xFFEF4444)
-        }
-        else -> { statusLabel = "To Do"; statusColor = Color(0xFF94A3B8) }
-    }
-
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+
+    // Only resolved when this task was actually assigned by someone else
+    // (Connect->Assign->Complete->Earn, Milestone 3) — a self-created task's
+    // createdBy is the viewer's own uid, so there's nothing new to show.
+    var assignerName by remember(task.id) { mutableStateOf<String?>(null) }
+    var assignerPhotoUrl by remember(task.id) { mutableStateOf<String?>(null) }
+    LaunchedEffect(task.id, task.createdBy) {
+        val creatorId = task.createdBy
+        if (creatorId != null && creatorId != session.uid) {
+            val record = UserRepository.fetchUserRecord(creatorId)
+            assignerName = record?.name
+            assignerPhotoUrl = record?.photoUrl
+        } else {
+            assignerName = null
+            assignerPhotoUrl = null
+        }
+    }
+
     var showPhotoSheet by remember { mutableStateOf(false) }
     var rawPhotoForCrop by remember { mutableStateOf<Bitmap?>(null) }
     var lightboxUrl by remember { mutableStateOf<String?>(null) }
@@ -138,7 +150,24 @@ fun TaskDetailScreen(
     var heroHeightPx by remember { mutableIntStateOf(0) }
     val scrollProgress = rememberHeroScrollProgress(scrollState.value, heroHeightPx)
 
-    Box(Modifier.fillMaxSize()) {
+    // One-time flash when arriving from a notification tap, so it's obvious
+    // at a glance which task the notification was about — fades back to the
+    // normal background over ~1s instead of staying tinted.
+    val highlightAlpha = remember { Animatable(if (highlightOnOpen) 1f else 0f) }
+    LaunchedEffect(Unit) {
+        if (highlightOnOpen) {
+            delay(300)
+            highlightAlpha.animateTo(0f, animationSpec = tween(1000))
+        }
+    }
+    val screenBackground = MaterialTheme.colorScheme.background
+    val cardBackground = androidx.compose.ui.graphics.lerp(screenBackground, color.copy(alpha = 0.25f), highlightAlpha.value)
+
+    // Without an explicit background here, the raw window background (black,
+    // since MainActivity runs edge-to-edge with transparent system bars)
+    // showed through below the content whenever the scrollable Column ended
+    // above the bottom of the screen — the "black area at the bottom" bug.
+    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         // The hero is a normal in-flow child of the SAME scrollable Column as
         // the card, not a separate full-screen overlay behind a spacer — an
         // earlier version used a fillMaxSize() scrollable Column layered over
@@ -159,15 +188,11 @@ fun TaskDetailScreen(
                     heroColor = color,
                     iconSvg = svg,
                     title = task.title,
-                    description = task.description.ifBlank { null },
-                    statusLabel = statusLabel,
-                    statusColor = statusColor,
                     pillIcon = Icons.Default.Star,
                     pillText = if (task.points > 0) "${task.points} XP" else "—",
                     actions = listOf(
                         DetailHeroAction(Icons.Default.NoteAdd, "Add Note", enabled = !done, onClick = onAddNote),
-                        DetailHeroAction(Icons.Default.AddAPhoto, "Add Photo", enabled = !done, onClick = { showPhotoSheet = true }),
-                        DetailHeroAction(Icons.Default.Check, if (done) "Completed" else "Mark Complete", enabled = !done, completed = done, onClick = { viewModel.setTaskDoneImmediate(task, true) })
+                        DetailHeroAction(Icons.Default.AddAPhoto, "Add Photo", enabled = !done, onClick = { showPhotoSheet = true })
                     ),
                     onBack = onBack,
                     onEdit = if (canEdit) onEdit else null
@@ -179,7 +204,7 @@ fun TaskDetailScreen(
                     .offset(y = (-60).dp)
                     .defaultMinSize(minHeight = 500.dp)
                     .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
-                    .background(MaterialTheme.colorScheme.background)
+                    .background(cardBackground)
             ) {
                 Spacer(Modifier.height(18.dp))
                 Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -197,8 +222,8 @@ fun TaskDetailScreen(
 
                     AccordionSection(title = "Details", initiallyOpen = true) {
                         Column {
-                            DetailInfoRow("Assigned To", session.name)
-                            DetailInfoRowChip("Category", task.category, color)
+                            assignerName?.let { DetailInfoRowPerson("Assigned By", it, assignerPhotoUrl) }
+                            DetailInfoRowPerson("Assigned To", if (assignerName != null) "You" else session.name, session.photoUrl)
                             if (task.points > 0) DetailInfoRowChip("Points", "${task.points} XP", color)
                             DetailInfoRow("Task Created", task.createdDate ?: "—")
                             DetailInfoRow("Due Date", task.dueDate ?: "—", valueColor = if (task.dueDate != null) Color(0xFFEF4444) else null)

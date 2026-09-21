@@ -12,13 +12,20 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.google.firebase.messaging.FirebaseMessaging
+import com.triangle.app.data.ThemeMode
+import com.triangle.app.data.ThemeStore
 import com.triangle.app.navigation.AppNavHost
 import com.triangle.app.ui.theme.TriangleTheme
 
@@ -64,6 +71,14 @@ class MainActivity : AppCompatActivity() {
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
+        // The system splash surface itself can only ever be a flat color
+        // (windowSplashScreenBackground is a @color, not a drawable — an
+        // Android platform restriction, not a limitation of this setup) —
+        // it dismisses on the very next frame instead of being held open,
+        // so that unavoidable flat-orange instant is as brief as possible.
+        // AppNavHost's own gradient splash (matching the real logo) takes
+        // over immediately after for the actual session-restore wait.
+        installSplashScreen()
         super.onCreate(savedInstanceState)
 
         // Enable edge-to-edge
@@ -72,12 +87,25 @@ class MainActivity : AppCompatActivity() {
         window.statusBarColor = Color.TRANSPARENT
         window.navigationBarColor = Color.TRANSPARENT
 
-        val insetsController = WindowInsetsControllerCompat(window, window.decorView)
-        insetsController.isAppearanceLightStatusBars = true
-        insetsController.isAppearanceLightNavigationBars = true
-
         setContent {
-            TriangleTheme {
+            val context = LocalContext.current
+            val mode by ThemeStore.modeFlow(context).collectAsState(initial = ThemeMode.SYSTEM)
+            val systemDark = isSystemInDarkTheme()
+            val darkTheme = when (mode) {
+                ThemeMode.SYSTEM -> systemDark
+                ThemeMode.LIGHT -> false
+                ThemeMode.DARK -> true
+            }
+            // Status/nav bar icon contrast has to react to the resolved
+            // theme too (not just MaterialTheme's colors) — light icons on
+            // a dark background and vice versa, same override chosen in
+            // Settings > Appearance, not just the raw OS setting.
+            SideEffect {
+                val insetsController = WindowInsetsControllerCompat(window, window.decorView)
+                insetsController.isAppearanceLightStatusBars = !darkTheme
+                insetsController.isAppearanceLightNavigationBars = !darkTheme
+            }
+            TriangleTheme(darkTheme = darkTheme) {
                 AppNavHost(activity = this)
             }
         }

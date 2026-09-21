@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -28,6 +27,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -36,9 +36,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.triangle.app.data.UserRepository
+import com.triangle.app.ui.components.Avatar
 
-/** Native port of openDmNewMessagePage()/_dmnRenderSearch() (script.js:1453-1537). */
+/**
+ * Picks who to message from — deliberately just your own Circle, not a
+ * global user directory: this app never lets you see or message someone
+ * who isn't already a connection (see CircleSearchScreen's doc for the
+ * same reasoning on the Connect side).
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DmNewMessageScreen(
@@ -48,6 +53,8 @@ fun DmNewMessageScreen(
 ) {
     val state by viewModel.search.collectAsState()
     val palette = dmPalette()
+
+    LaunchedEffect(Unit) { viewModel.loadConnectionsForNewMessage() }
 
     Scaffold(
         topBar = {
@@ -60,8 +67,8 @@ fun DmNewMessageScreen(
         Column(Modifier.fillMaxSize().padding(padding).padding(16.dp)) {
             OutlinedTextField(
                 value = state.query,
-                onValueChange = { viewModel.searchUsers(it) },
-                placeholder = { Text("Search by name or email") },
+                onValueChange = { viewModel.setSearchQuery(it) },
+                placeholder = { Text("Search your connections") },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
@@ -69,10 +76,10 @@ fun DmNewMessageScreen(
             Spacer(Modifier.height(16.dp))
 
             when {
-                state.query.isBlank() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("Search for someone to message", fontSize = 13.sp, color = palette.text3)
+                state.allConnections.isEmpty() && !state.isLoading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("Connect with someone first to message them", fontSize = 13.sp, color = palette.text3, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.padding(32.dp))
                 }
-                state.results.isEmpty() && !state.isSearching -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                state.results.isEmpty() && !state.isLoading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text("No one found", fontSize = 13.sp, color = palette.text3)
                 }
                 else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -86,9 +93,7 @@ fun DmNewMessageScreen(
                                 .padding(12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Box(Modifier.size(42.dp).clip(CircleShape).background(DmColors.Accent.copy(alpha = 0.18f)), contentAlignment = Alignment.Center) {
-                                Text((user.name.firstOrNull() ?: '?').uppercase(), color = DmColors.Accent, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                            }
+                            Avatar(user.name, user.photoUrl, size = 42.dp, backgroundColor = DmColors.Accent.copy(alpha = 0.18f), textColor = DmColors.Accent, fontSize = 16.sp)
                             Spacer(Modifier.width(12.dp))
                             Column {
                                 Text(user.name, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = palette.text)

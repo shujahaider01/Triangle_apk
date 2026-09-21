@@ -1,25 +1,29 @@
 package com.triangle.app.tasks
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -31,6 +35,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.triangle.app.ui.theme.triangleDarkTheme
 import java.time.LocalDate
 import java.time.format.TextStyle
 import java.util.Locale
@@ -38,8 +43,8 @@ import kotlin.math.max
 import kotlin.math.min
 
 private val DAY_WIDTH = 52.dp
-private val RING_SIZE = 46.dp
-private val RING_STROKE = 2.5.dp
+private val RING_SIZE = 45.dp
+private val RING_STROKE = 3.9.dp
 
 /**
  * Native port of script.js's _buildDateStrip() — the full calendar month
@@ -47,13 +52,19 @@ private val RING_STROKE = 2.5.dp
  * completion-% progress ring (matches .ds-day/.ds-day-ring/.ds-ring-fill).
  * [pctForDate] is whichever tab is active (tasksPctForDate/habitsPctForDate
  * on TasksHabitsViewModel) — the ring reflects that tab's data.
+ *
+ * [highlightRange] paints a tinted band behind every pill that falls inside
+ * the Filters sheet's "Date range" pick (see TaskHabitFilters.dateRangeHighlight's
+ * doc comment) — purely visual, it never changes which day is selected or
+ * what the list below shows; the screen stays a single-day view.
  */
 @Composable
 fun DateStrip(
     selectedDate: LocalDate,
     brandColor: Color,
     pctForDate: (LocalDate) -> Int,
-    onSelect: (LocalDate) -> Unit
+    onSelect: (LocalDate) -> Unit,
+    highlightRange: DateSpan? = null
 ) {
     val today = remember { LocalDate.now() }
     val daysInMonth = remember(selectedDate.year, selectedDate.monthValue) {
@@ -64,6 +75,11 @@ fun DateStrip(
     val listState = rememberLazyListState()
     val density = LocalDensity.current
     var viewportWidthPx by remember { mutableIntStateOf(0) }
+    // Survives DateStrip leaving/re-entering composition (e.g. opening then
+    // backing out of a task/habit detail screen, which is a local overlay
+    // that briefly stops composing this whole pane) so the centering scroll
+    // only *animates* the first time the page appears, not on every return.
+    var lastAnimatedDate by rememberSaveable { mutableStateOf<String?>(null) }
 
     Box {
         val visibleCount = max(1, with(density) { viewportWidthPx.toDp() / DAY_WIDTH }.toInt())
@@ -71,12 +87,17 @@ fun DateStrip(
             if (viewportWidthPx == 0) return@LaunchedEffect
             val targetIndex = daysInMonth.indexOf(selectedDate).coerceAtLeast(0)
             val centered = max(0, min(daysInMonth.lastIndex, targetIndex - visibleCount / 2))
-            listState.animateScrollToItem(centered)
+            if (lastAnimatedDate == selectedDate.toString()) {
+                listState.scrollToItem(centered)
+            } else {
+                listState.animateScrollToItem(centered)
+                lastAnimatedDate = selectedDate.toString()
+            }
         }
 
         LazyRow(
             state = listState,
-            horizontalArrangement = Arrangement.spacedBy(0.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
             modifier = Modifier.onSizeChanged { viewportWidthPx = it.width }
         ) {
             itemsIndexed(daysInMonth, key = { _, d -> d.toString() }) { _, date ->
@@ -85,6 +106,7 @@ fun DateStrip(
                     isToday = date == today,
                     isSelected = date == selectedDate,
                     isPast = date.isBefore(today),
+                    isInHighlightRange = highlightRange?.contains(date) == true,
                     pct = pctForDate(date),
                     brandColor = brandColor,
                     onClick = { onSelect(date) }
@@ -100,11 +122,12 @@ private fun DateStripDay(
     isToday: Boolean,
     isSelected: Boolean,
     isPast: Boolean,
+    isInHighlightRange: Boolean,
     pct: Int,
     brandColor: Color,
     onClick: () -> Unit
 ) {
-    val dark = isSystemInDarkTheme()
+    val dark = triangleDarkTheme()
     val neutralTrack = MaterialTheme.colorScheme.onSurface.copy(alpha = if (dark) 0.14f else 0.09f)
     val trackColor = when {
         isToday -> brandColor.copy(alpha = 0.15f)
@@ -127,7 +150,14 @@ private fun DateStripDay(
     val numWeight = if (isToday || isSelected) FontWeight.Black else FontWeight.SemiBold
 
     Column(
-        modifier = Modifier.width(DAY_WIDTH).clickable(onClick = onClick),
+        modifier = Modifier
+            .width(DAY_WIDTH)
+            .then(
+                if (isInHighlightRange) Modifier.background(brandColor.copy(alpha = 0.12f), RoundedCornerShape(10.dp))
+                else Modifier
+            )
+            .padding(vertical = 4.dp)
+            .clickable(onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
@@ -150,7 +180,7 @@ private fun DateStripDay(
                     useCenter = false,
                     topLeft = topLeft,
                     size = arcSize,
-                    style = Stroke(width = strokePx, cap = StrokeCap.Butt)
+                    style = Stroke(width = strokePx, cap = StrokeCap.Round)
                 )
                 if (pct > 0) {
                     drawArc(

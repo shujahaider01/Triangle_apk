@@ -158,7 +158,7 @@ private fun AuthTabs(active: String, onSelect: (String) -> Unit) {
 /**
  * Simplified stand-in for script.js's _AUTH_HERO_ILLUSTRATION_SVG (an
  * upward bar chart + graduation cap + twinkling stars) — same "Habits /
- * Tasks / Rewards" motif and brand colors (#F472B6/#60A5FA/#F5B324), built
+ * Tasks / Progress" motif and brand colors (#F472B6/#60A5FA/#F5B324), built
  * from plain rounded boxes instead of a hand-ported multi-path SVG.
  */
 @Composable
@@ -166,7 +166,7 @@ fun AuthHeroIllustration() {
     Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
         HeroBar(56.dp, Color(0xFFF472B6), "Habits")
         HeroBar(84.dp, Color(0xFF60A5FA), "Tasks")
-        HeroBar(108.dp, Color(0xFFF5B324), "Rewards", showCap = true)
+        HeroBar(108.dp, Color(0xFFF5B324), "Progress", showCap = true)
     }
 }
 

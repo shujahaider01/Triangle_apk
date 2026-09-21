@@ -4,16 +4,13 @@ import com.triangle.app.data.models.Task
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.temporal.TemporalAdjusters
-import kotlin.math.floor
-import kotlin.math.log10
 import kotlin.math.max
-import kotlin.math.pow
 import kotlin.math.roundToInt
 
 /**
  * Faithful port of renderInternProfile()'s chart-computation functions
  * (getWeeklyProductivity/getTasksByCategory/getTaskStatusDistribution/
- * getCoinsEarnedVsSpent/getOverdueTasksTimeline/getMonthlyPerformance/
+ * getOverdueTasksTimeline/getMonthlyPerformance/
  * getWeeklyRankRecord/getMostXpInADay) — see the Milestone 3 plan for which
  * Profile functions were deliberately NOT ported (getCategoryPerformance,
  * getLeaderboardRanking, getMilestones's unused UI, the whole V/S tab —
@@ -133,47 +130,6 @@ object ProfileStats {
         }
         return TaskStatusDistribution(total, statuses)
     }
-
-    // ── Coins Earned vs Spent ───────────────────────────────────────────────
-    data class CoinWeek(val earned: Int, val spent: Int)
-    data class CoinsEarnedVsSpent(val weeks: List<CoinWeek>, val axisMax: Int)
-
-    fun niceAxisMax(v: Int): Int {
-        if (v <= 10) return 10
-        val mag = 10.0.pow(floor(log10(v.toDouble())))
-        val norm = v / mag
-        val nice = if (norm <= 1) 1.0 else if (norm <= 2) 2.0 else if (norm <= 5) 5.0 else 10.0
-        return (nice * mag).roundToInt()
-    }
-
-    fun getCoinsEarnedVsSpent(transactions: List<Map<String, Any?>>, ref: MonthRef): CoinsEarnedVsSpent {
-        val (monthStart, monthEnd) = monthBounds(ref)
-        val zone = java.time.ZoneId.systemDefault()
-        val monthStartMs = monthStart.atStartOfDay(zone).toInstant().toEpochMilli()
-        val monthEndMs = monthEnd.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli() - 1
-        val weeks = mutableListOf<CoinWeek>()
-        var cursor = monthStart
-        while (!cursor.isAfter(monthEnd)) {
-            val bucketEnd = minOf(cursor.plusDays(6), monthEnd)
-            val weekStartMs = cursor.atStartOfDay(zone).toInstant().toEpochMilli()
-            val weekEndMs = bucketEnd.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli() - 1
-            val inWeek = transactions.filter {
-                val ts = (it["timestamp"] as? Number)?.toLong() ?: 0L
-                ts in weekStartMs..minOf(weekEndMs, monthEndMs)
-            }
-            val earned = inWeek.filter { it["type"] == "earned" }.sumOf { (it["coinsChange"] as? Number)?.toInt() ?: 0 }
-            val spent = inWeek.filter { it["type"] == "spent" }.sumOf { kotlin.math.abs((it["coinsChange"] as? Number)?.toInt() ?: 0) }
-            weeks.add(CoinWeek(earned, spent))
-            cursor = bucketEnd.plusDays(1)
-        }
-        val rawMax = max(1, weeks.flatMap { listOf(it.earned, it.spent) }.maxOrNull() ?: 0)
-        return CoinsEarnedVsSpent(weeks, niceAxisMax(rawMax))
-    }
-
-    fun fmtCoinShort(v: Int): String = if (v >= 1000) {
-        val k = v / 1000.0
-        (if (v % 1000 == 0) k.toInt().toString() else "%.1f".format(k)) + "k"
-    } else v.toString()
 
     // ── Overdue Tasks Timeline ──────────────────────────────────────────────
     data class OverdueWeek(val label: String, val count: Int)

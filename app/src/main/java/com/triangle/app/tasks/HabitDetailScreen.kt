@@ -5,6 +5,8 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -26,7 +28,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddAPhoto
 import androidx.compose.material.icons.filled.Autorenew
 import androidx.compose.material.icons.filled.BarChart
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.NoteAdd
@@ -40,7 +41,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -63,9 +63,11 @@ import com.triangle.app.data.HabitRepository
 import com.triangle.app.data.HabitStats
 import com.triangle.app.data.SessionStore
 import com.triangle.app.data.TaskNoteRepository
+import com.triangle.app.data.UserRepository
 import com.triangle.app.data.models.Habit
 import com.triangle.app.data.models.TaskNote
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
@@ -82,15 +84,14 @@ fun HabitDetailScreen(
     session: SessionStore.Session,
     viewModel: TasksHabitsViewModel,
     habit: Habit,
+    canEdit: Boolean,
     onEdit: () -> Unit,
     onOpenAnalytics: () -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    highlightOnOpen: Boolean = false
 ) {
-    val state by viewModel.uiState.collectAsState()
-    val completions = state.habitCompletions[habit.id] ?: emptyMap()
     val streak = viewModel.streakFor(habit)
     val today = LocalDate.now().toString()
-    val doneToday = completions.containsKey(today)
 
     val color = runCatching { Color(android.graphics.Color.parseColor(habit.color)) }.getOrDefault(MaterialTheme.colorScheme.primary)
     val svg = habit.iconSvg ?: HabitPalette.ICONS.getValue(HabitPalette.DEFAULT_ICON_KEY)
@@ -108,6 +109,23 @@ fun HabitDetailScreen(
 
     LaunchedEffect(habit.id) {
         todaysNote = HabitRepository.getHabitNote(session.orgId, session.uid, habit.id, today)
+    }
+
+    // Only resolved when this habit was actually assigned by someone else
+    // (Connect->Assign->Complete->Earn, Milestone 3) — a self-created habit's
+    // createdBy is the viewer's own uid, so there's nothing new to show.
+    var assignerName by remember(habit.id) { mutableStateOf<String?>(null) }
+    var assignerPhotoUrl by remember(habit.id) { mutableStateOf<String?>(null) }
+    LaunchedEffect(habit.id, habit.createdBy) {
+        val creatorId = habit.createdBy
+        if (creatorId != null && creatorId != session.uid) {
+            val record = UserRepository.fetchUserRecord(creatorId)
+            assignerName = record?.name
+            assignerPhotoUrl = record?.photoUrl
+        } else {
+            assignerName = null
+            assignerPhotoUrl = null
+        }
     }
 
     val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri: Uri? ->
@@ -136,7 +154,21 @@ fun HabitDetailScreen(
     var heroHeightPx by remember { mutableIntStateOf(0) }
     val scrollProgress = rememberHeroScrollProgress(scrollState.value, heroHeightPx)
 
-    Box(Modifier.fillMaxSize()) {
+    // One-time flash when arriving from a notification tap — see
+    // TaskDetailScreen's identical highlightOnOpen for why.
+    val highlightAlpha = remember { Animatable(if (highlightOnOpen) 1f else 0f) }
+    LaunchedEffect(Unit) {
+        if (highlightOnOpen) {
+            delay(300)
+            highlightAlpha.animateTo(0f, animationSpec = tween(1000))
+        }
+    }
+    val screenBackground = MaterialTheme.colorScheme.background
+    val cardBackground = androidx.compose.ui.graphics.lerp(screenBackground, color.copy(alpha = 0.25f), highlightAlpha.value)
+
+    // Same "black area at the bottom" fix as TaskDetailScreen — without this,
+    // the raw window background showed through below short content.
+    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         // See TaskDetailScreen's identical structure for why the hero lives
         // inside the same scrollable Column as the card (offset upward to
         // overlap it) instead of as a separate full-screen layer behind it —
@@ -152,20 +184,16 @@ fun HabitDetailScreen(
                     heroColor = color,
                     iconSvg = svg,
                     title = habit.name,
-                    description = habit.description.ifBlank { null },
-                    statusLabel = if (doneToday) "Completed" else "Not Completed",
-                    statusColor = if (doneToday) Color(0xFF22C55E) else Color(0xFF94A3B8),
                     pillIcon = Icons.Default.Autorenew,
                     pillText = freqLabel,
                     actions = listOf(
                         DetailHeroAction(Icons.Default.BarChart, "Analytics", onClick = onOpenAnalytics),
                         DetailHeroAction(Icons.Default.EmojiEvents, "Streak", onClick = { showAchievements = true }),
                         DetailHeroAction(Icons.Default.NoteAdd, "Add Note", onClick = { showNoteDialog = true }),
-                        DetailHeroAction(Icons.Default.AddAPhoto, "Add Photo", onClick = { showPhotoSheet = true }),
-                        DetailHeroAction(Icons.Default.Check, if (doneToday) "Completed" else "Mark Complete", enabled = !doneToday, completed = doneToday, onClick = { viewModel.completeHabitToday(habit) })
+                        DetailHeroAction(Icons.Default.AddAPhoto, "Add Photo", onClick = { showPhotoSheet = true })
                     ),
                     onBack = onBack,
-                    onEdit = onEdit
+                    onEdit = if (canEdit) onEdit else null
                 )
             }
             Column(
@@ -174,7 +202,7 @@ fun HabitDetailScreen(
                     .offset(y = (-60).dp)
                     .defaultMinSize(minHeight = 500.dp)
                     .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
-                    .background(MaterialTheme.colorScheme.background)
+                    .background(cardBackground)
             ) {
                 Spacer(Modifier.height(18.dp))
                 Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -196,7 +224,8 @@ fun HabitDetailScreen(
                         // `habit.category || 'Personal'` fallback would be fabricated data
                         // here, so this row is dropped rather than showing a fake constant.
                         Column {
-                            DetailInfoRow("Assigned To", session.name)
+                            assignerName?.let { DetailInfoRowPerson("Assigned By", it, assignerPhotoUrl) }
+                            DetailInfoRowPerson("Assigned To", if (assignerName != null) "You" else session.name, session.photoUrl)
                             DetailInfoRow("Frequency", freqLabel)
                             DetailInfoRow("Current Streak", "${streak.current} day${if (streak.current == 1) "" else "s"}")
                             DetailInfoRow("Habit Created", habit.startDate, isLast = true)

@@ -12,6 +12,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseAuthException
 import com.google.firebase.auth.GoogleAuthProvider
 import com.triangle.app.BuildConfig
+import com.triangle.app.data.EmailInviteRepository
 import com.triangle.app.data.SessionStore
 import com.triangle.app.data.UserRepository
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -195,13 +196,22 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun routeAfterIdentity(uid: String, displayName: String, email: String) {
         try {
             val existing = UserRepository.fetchUserRecord(uid)
-            val record = existing ?: UserRepository.createIndividualAccount(uid, displayName, email)
+            val record = if (existing != null) existing else {
+                val created = UserRepository.createIndividualAccount(uid, displayName, email)
+                // Only on true first-creation, not every login — checks whether
+                // anyone invited this email before it had an account (see
+                // EmailInviteRepository.sendInvite()'s "not found" branch).
+                runCatching { EmailInviteRepository.consumePendingInvites(uid, created.name.ifBlank { displayName }, email) }
+                created
+            }
             val session = SessionStore.Session(
                 uid = record.uid,
                 name = record.name.ifBlank { displayName },
                 email = record.email.ifBlank { email },
                 role = record.role,
-                orgId = record.orgId
+                orgId = record.orgId,
+                photoUrl = record.photoUrl,
+                username = record.username
             )
             SessionStore.save(getApplication(), session)
             _uiState.value = _uiState.value.copy(isLoading = false, error = null)

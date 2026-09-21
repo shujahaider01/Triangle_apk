@@ -1,9 +1,9 @@
 package com.triangle.app.notifications
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.graphics.Color
+import com.triangle.app.ui.theme.triangleDarkTheme
 
 data class NotificationsPalette(
     val surface2: Color,
@@ -15,7 +15,7 @@ data class NotificationsPalette(
 @Composable
 @ReadOnlyComposable
 fun notificationsPalette(): NotificationsPalette {
-    val dark = isSystemInDarkTheme()
+    val dark = triangleDarkTheme()
     return if (dark) {
         NotificationsPalette(Color(0xFF1E2738), Color(0xFFFFFFFF), Color(0xFFA1A1AA), Color(0xFF6B7280))
     } else {

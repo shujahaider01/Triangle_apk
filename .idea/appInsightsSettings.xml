@@ -8,10 +8,10 @@
             <InsightsFilterSettings>
               <option name="connection">
                 <ConnectionSetting>
-                  <option name="appId" value="PLACEHOLDER" />
-                  <option name="mobileSdkAppId" value="" />
-                  <option name="projectId" value="" />
-                  <option name="projectNumber" value="" />
+                  <option name="appId" value="com.triangle.app" />
+                  <option name="mobileSdkAppId" value="1:859625465910:android:4865720da9240ebf615097" />
+                  <option name="projectId" value="triangle-apk" />
+                  <option name="projectNumber" value="859625465910" />
                 </ConnectionSetting>
               </option>
               <option name="signal" value="SIGNAL_UNSPECIFIED" />

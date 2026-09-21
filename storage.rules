@@ -1,19 +1,23 @@
 rules_version = '2';
 
-// Firebase Storage security rules for the `triangle-apk` project — task-note
-// photos only (see data/TaskNoteRepository.kt). Paste this into Firebase
-// Console > Build > Storage > Rules after enabling Storage (Console > Build
-// > Storage > Get started); this file isn't auto-deployed, it's just the
-// source of truth checked into the repo.
+// Firebase Storage security rules for the `triangle-apk` project — see
+// data/TaskNoteRepository.kt for all three upload paths below. Paste this
+// into Firebase Console > Build > Storage > Rules after enabling Storage
+// (Console > Build > Storage > Get started); this file isn't auto-deployed,
+// it's just the source of truth checked into the repo.
 //
-// Path shape: taskNotePhotos/{orgId}/{uid}/{taskId}/{filename} — any signed-in
-// user can read (task-note photos aren't sensitive, and org-scoped sharing
-// isn't modeled here), but a user can only write into their OWN uid segment,
-// mirroring the Realtime Database's per-user write scoping used everywhere
-// else in this app.
+// Path shapes: taskNotePhotos/{orgId}/{uid}/{taskId}/{filename},
+// profilePhotos/{uid}/{filename} — any signed-in user can read (none of
+// this is sensitive, and org-scoped sharing isn't modeled here), but a user
+// can only write into their OWN uid segment, mirroring the Realtime
+// Database's per-user write scoping used everywhere else in this app.
 service firebase.storage {
   match /b/{bucket}/o {
     match /taskNotePhotos/{orgId}/{uid}/{taskId}/{fileName} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == uid;
+    }
+    match /profilePhotos/{uid}/{fileName} {
       allow read: if request.auth != null;
       allow write: if request.auth != null && request.auth.uid == uid;
     }

@@ -16,13 +16,18 @@ object SessionStore {
     private val KEY_EMAIL = stringPreferencesKey("email")
     private val KEY_ROLE = stringPreferencesKey("role")
     private val KEY_ORG_ID = stringPreferencesKey("org_id")
+    private val KEY_PHOTO_URL = stringPreferencesKey("photo_url")
+    private val KEY_USERNAME = stringPreferencesKey("username")
 
     data class Session(
         val uid: String,
         val name: String,
         val email: String,
         val role: String,
-        val orgId: String
+        val orgId: String,
+        val photoUrl: String? = null,
+        /** Null means this account hasn't chosen one yet — AppNavHost routes to username setup until it's set. */
+        val username: String? = null
     )
 
     fun sessionFlow(context: Context): Flow<Session?> =
@@ -35,7 +40,9 @@ object SessionStore {
                 name = prefs[KEY_NAME] ?: "",
                 email = prefs[KEY_EMAIL] ?: "",
                 role = prefs[KEY_ROLE] ?: "individual",
-                orgId = orgId
+                orgId = orgId,
+                photoUrl = prefs[KEY_PHOTO_URL],
+                username = prefs[KEY_USERNAME]
             )
         }
 
@@ -46,6 +53,8 @@ object SessionStore {
             p[KEY_EMAIL] = session.email
             p[KEY_ROLE] = session.role
             p[KEY_ORG_ID] = session.orgId
+            if (session.photoUrl != null) p[KEY_PHOTO_URL] = session.photoUrl else p.remove(KEY_PHOTO_URL)
+            if (session.username != null) p[KEY_USERNAME] = session.username else p.remove(KEY_USERNAME)
         }
     }
 

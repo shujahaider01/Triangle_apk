@@ -1,10 +1,7 @@
 package com.triangle.app.tasks
 
 import android.graphics.Bitmap
-import android.graphics.ImageDecoder
 import android.net.Uri
-import android.os.Build
-import android.provider.MediaStore
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -61,6 +58,7 @@ import com.triangle.app.data.TaskNoteRepository
 import com.triangle.app.data.TaskRepository
 import com.triangle.app.data.models.TaskNote
 import com.triangle.app.ui.theme.TriangleBrandPurple
+import com.triangle.app.util.decodeImageUri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -101,7 +99,7 @@ fun AddNoteScreen(
         if (uri == null) return@rememberLauncherForActivityResult
         decoding = true
         scope.launch {
-            val bmp = withContext(Dispatchers.IO) { decodeUri(context, uri) }
+            val bmp = withContext(Dispatchers.IO) { decodeImageUri(context, uri) }
             decoding = false
             if (bmp == null) {
                 error = "Couldn't open that image"
@@ -237,16 +235,4 @@ fun AddNoteScreen(
         )
     }
     }
-}
-
-private fun decodeUri(context: android.content.Context, uri: Uri): Bitmap? = try {
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-        val source = ImageDecoder.createSource(context.contentResolver, uri)
-        ImageDecoder.decodeBitmap(source) { decoder, _, _ -> decoder.isMutableRequired = true }
-    } else {
-        @Suppress("DEPRECATION")
-        MediaStore.Images.Media.getBitmap(context.contentResolver, uri)
-    }
-} catch (e: Exception) {
-    null
 }

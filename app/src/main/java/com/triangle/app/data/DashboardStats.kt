@@ -133,19 +133,11 @@ object DashboardStats {
         }
     }
 
-    data class WeekBounds(val startMillis: Long, val endMillis: Long)
-
-    fun getWeekBounds(weeksAgo: Int): WeekBounds {
-        val monday = mondayOf(LocalDate.now()).minusWeeks(weeksAgo.toLong())
-        val nextMonday = monday.plusWeeks(1)
-        val zone = java.time.ZoneId.systemDefault()
-        return WeekBounds(
-            monday.atStartOfDay(zone).toInstant().toEpochMilli(),
-            nextMonday.atStartOfDay(zone).toInstant().toEpochMilli()
-        )
-    }
-
     /** Today's applicable tasks (all owner ids) split into pending / completed. */
     fun myTasks(tasks: List<Map<String, Any?>>, id: String): List<Map<String, Any?>> =
         tasks.filter { taskAppliesTo(it, id) && it["isTemplate"] != true }
+
+    /** All-time count of the intern's own completed (non-template) tasks. */
+    fun getCompletedCount(tasks: List<Map<String, Any?>>, taskCompletions: Map<String, Any?>, id: String): Int =
+        tasks.count { taskCountsForStats(it, id) && isDone(taskCompletions, taskId(it), id) }
 }

@@ -21,7 +21,10 @@ object UserRepository {
         val name: String,
         val email: String,
         val role: String,
-        val orgId: String
+        val orgId: String,
+        val photoUrl: String? = null,
+        /** Null until the account completes the (mandatory) username-setup step — see UsernameRepository.claim(). */
+        val username: String? = null
     )
 
     /** users/{uid} — null if this identity has never signed in before. */
@@ -34,31 +37,48 @@ object UserRepository {
             name = snap.child("name").getValue(String::class.java) ?: "",
             email = snap.child("email").getValue(String::class.java) ?: "",
             role = snap.child("role").getValue(String::class.java) ?: "individual",
-            orgId = orgId
+            orgId = orgId,
+            photoUrl = snap.child("photoUrl").getValue(String::class.java),
+            username = snap.child("username").getValue(String::class.java)
         )
     }
 
-    data class UserSearchResult(val uid: String, val name: String, val email: String)
+    /** Narrow write of just the profile-photo URL — matches the app's narrow-sub-path-write convention. */
+    suspend fun updateProfilePhoto(uid: String, photoUrl: String) {
+        db.getReference("users/$uid/photoUrl").setValue(photoUrl).await()
+    }
+
+    /** Narrow write of just the display name — used by Settings' General section. */
+    suspend fun updateName(uid: String, name: String) {
+        db.getReference("users/$uid/name").setValue(name).await()
+    }
+
+    data class UserSearchResult(val uid: String, val name: String, val email: String, val username: String? = null, val photoUrl: String? = null)
 
     /**
-     * Faithful port of _dmnRenderSearch (script.js:1515-1537) — fetches the
-     * ENTIRE root `users` table and filters client-side on name/email
-     * substring, excluding the caller, capped to 8 results. No Firebase
-     * query/index — same non-scaling "fetch everything" limitation the
-     * source itself has; acceptable for this milestone's fidelity goal, not
-     * something to engineer around now.
+     * Exact (case-insensitive) email lookup — same fetch-everything-and-
+     * filter approach as searchUsers, used by EmailInviteRepository to tell
+     * an invite-by-email apart from an invite-by-email-of-an-existing-user.
      */
-    suspend fun searchUsers(query: String, excludeUid: String): List<UserSearchResult> {
-        val q = query.trim().lowercase()
-        if (q.isEmpty()) return emptyList()
+    suspend fun findByEmail(email: String): UserRecord? {
+        val target = email.trim().lowercase()
+        if (target.isEmpty()) return null
         val snap = db.getReference("users").get().await()
-        return snap.children.mapNotNull { child ->
-            val uid = child.key ?: return@mapNotNull null
-            if (uid == excludeUid) return@mapNotNull null
-            val name = child.child("name").getValue(String::class.java) ?: return@mapNotNull null
-            val email = child.child("email").getValue(String::class.java) ?: ""
-            if (name.lowercase().contains(q) || email.lowercase().contains(q)) UserSearchResult(uid, name, email) else null
-        }.take(8)
+        return snap.children.firstNotNullOfOrNull { child ->
+            val uid = child.key ?: return@firstNotNullOfOrNull null
+            val childEmail = child.child("email").getValue(String::class.java) ?: return@firstNotNullOfOrNull null
+            if (childEmail.lowercase() != target) return@firstNotNullOfOrNull null
+            val orgId = child.child("orgId").getValue(String::class.java) ?: return@firstNotNullOfOrNull null
+            UserRecord(
+                uid = uid,
+                name = child.child("name").getValue(String::class.java) ?: "",
+                email = childEmail,
+                role = child.child("role").getValue(String::class.java) ?: "individual",
+                orgId = orgId,
+                photoUrl = child.child("photoUrl").getValue(String::class.java),
+                username = child.child("username").getValue(String::class.java)
+            )
+        }
     }
 
     /** Faithful port of registerDeviceToken (script.js:928-941) — narrow write, no read-modify needed. */

@@ -46,32 +46,33 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.triangle.app.data.HabitStats
-import com.triangle.app.data.SessionStore
 import com.triangle.app.data.models.Habit
+import com.triangle.app.data.models.HabitCompletionEntry
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
 /**
  * Native port of script.js's openHabitAnalytics() — reached from Habit
- * Detail's hero "Analytics" button. Plain (non-hero) top bar, then a
- * scrolling stack of stat cards, a monthly completion bar chart (the
- * source itself renders this as plain divs with height percentages, not
- * an actual <canvas> — Compose Boxes are the faithful port here, not a
+ * Detail's hero "Analytics" button, or from an assigned-out habit row's own
+ * Analytics shortcut (see AssignedRowCards.kt) — the assigner isn't the one
+ * completing an assigned habit, so [completions] is passed in directly
+ * (merged across every recipient for an assigned group) rather than read
+ * from the viewer's own TasksHabitsViewModel state. Plain (non-hero) top
+ * bar, then a scrolling stack of stat cards, a monthly completion bar chart
+ * (the source itself renders this as plain divs with height percentages,
+ * not an actual <canvas> — Compose Boxes are the faithful port here, not a
  * simplification), the shared HabitHeatmapGrid, streak-run lists, a
  * navigable year heatmap, and a completion history list.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HabitAnalyticsScreen(
-    session: SessionStore.Session,
-    viewModel: TasksHabitsViewModel,
     habit: Habit,
+    completions: Map<String, HabitCompletionEntry>,
     onBack: () -> Unit
 ) {
-    val state by viewModel.uiState.collectAsState()
-    val completions = state.habitCompletions[habit.id] ?: emptyMap()
     val color = runCatching { Color(android.graphics.Color.parseColor(habit.color)) }.getOrDefault(MaterialTheme.colorScheme.primary)
-    val streak = viewModel.streakFor(habit)
+    val streak = remember(habit, completions) { HabitStats.calcStreak(habit, completions) }
     val score = remember(completions) { HabitStats.calcScore(habit, completions) }
 
     val startDate = runCatching { LocalDate.parse(habit.startDate) }.getOrNull() ?: LocalDate.now()
@@ -161,24 +162,33 @@ fun HabitAnalyticsScreen(
             // Completion History
             AnalyticsCard {
                 Text("Completion History", fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 4.dp))
-                val recentDates = remember(completions) {
-                    completions.keys.mapNotNull { runCatching { LocalDate.parse(it) }.getOrNull() }.sortedDescending().take(10)
+                val recentEntries = remember(completions) {
+                    completions.entries
+                        .mapNotNull { (key, entry) -> runCatching { LocalDate.parse(key) }.getOrNull()?.let { it to entry } }
+                        .sortedByDescending { it.second.completedAt }
+                        .take(10)
                 }
-                if (recentDates.isEmpty()) {
+                if (recentEntries.isEmpty()) {
                     Text("No completions yet", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f), modifier = Modifier.padding(vertical = 12.dp))
                 } else {
-                    recentDates.forEachIndexed { index, date ->
+                    recentEntries.forEachIndexed { index, (date, entry) ->
                         Row(
                             Modifier.fillMaxWidth().padding(vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             Box(Modifier.size(10.dp).clip(RoundedCornerShape(2.dp)).background(color))
-                            Text(date.format(DateTimeFormatter.ofPattern("d MMM yyyy")), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
-                            Spacer(Modifier.weight(1f))
+                            Column(Modifier.weight(1f)) {
+                                Text(date.format(DateTimeFormatter.ofPattern("d MMM yyyy")), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
+                                Text(
+                                    formatCompletionTime(entry.completedAt),
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                                )
+                            }
                             Text("✓", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = color)
                         }
-                        if (index != recentDates.lastIndex) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        if (index != recentEntries.lastIndex) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     }
                 }
             }
@@ -186,6 +196,11 @@ fun HabitAnalyticsScreen(
         }
     }
 }
+
+private fun formatCompletionTime(completedAtMillis: Long): String =
+    java.time.Instant.ofEpochMilli(completedAtMillis)
+        .atZone(java.time.ZoneId.systemDefault())
+        .format(DateTimeFormatter.ofPattern("h:mm a"))
 
 @Composable
 private fun StatCard(label: String, value: String, modifier: Modifier = Modifier) {

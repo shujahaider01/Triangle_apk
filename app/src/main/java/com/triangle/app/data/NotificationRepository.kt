@@ -10,10 +10,10 @@ import kotlinx.coroutines.tasks.await
  * Notifications data layer for the native Notifications screen (Milestone
  * 5). `organizations/{orgId}/data/notifications/{uid}` is a full per-user
  * ARRAY (script.js's pushInternNotif()/markAllNotifsRead(), script.js:4699-
- * 4832 always PUT the whole array) — full-array read-mutate-writeback here
- * too, same as Rewards' `rewards`/`redemptions` exception, but lower risk:
- * this path is already scoped to ONE user's own list, so there's no
- * cross-user contention the way Rewards' shared catalog had.
+ * 4832 always PUT the whole array) — full-array read-mutate-writeback here,
+ * same array-write pattern other per-user array paths in this app use, with
+ * low cross-user contention risk since this path is already scoped to ONE
+ * user's own list.
  */
 object NotificationRepository {
     private val db get() = FirebaseDatabase.getInstance(TriangleConfig.FIREBASE_URL)
@@ -43,23 +43,45 @@ object NotificationRepository {
      * (script.js:1170-1182): the recipient's own org is looked up (it's
      * NOT the sender's org — every account has its own dynamic org, unlike
      * the fixed DM_ORG_ID DM data itself lives under), then their
-     * notification array is read-unshifted-capped-written.
+     * notification array is read-unshifted-capped-written — see push() below.
      */
     suspend fun notifyDmMessage(toUid: String, fromUid: String, fromName: String, preview: String) {
+        push(toUid, "chat_message", fromName, preview, otherUserId = fromUid)
+    }
+
+    private fun newNotifId(): String =
+        "n-${System.currentTimeMillis()}-${(('a'..'z') + ('0'..'9')).shuffled().take(5).joinToString("")}"
+
+    /** Shared cross-org push: look up the recipient's own (dynamic) orgId, then read-unshift-cap-write their notification array — see notifyDmMessage's doc comment for why the org lookup can't just use the sender's own orgId. */
+    private suspend fun push(toUid: String, type: String, title: String, body: String, otherUserId: String? = null, itemId: String? = null) {
         val recipientOrgId = (db.getReference("users/$toUid/orgId").get().await().value as? String) ?: return
         val ref = notifRef(recipientOrgId, toUid)
         val current = anyToMapList(ref.get().await().value).mapNotNull { AppNotification.fromMap(it) }
         val entry = AppNotification(
-            id = "n-${System.currentTimeMillis()}-${(('a'..'z') + ('0'..'9')).shuffled().take(5).joinToString("")}",
-            type = "chat_message",
-            title = fromName,
-            body = preview,
-            read = false,
-            createdAt = System.currentTimeMillis(),
-            otherUserId = fromUid
+            id = newNotifId(), type = type, title = title, body = body,
+            read = false, createdAt = System.currentTimeMillis(), otherUserId = otherUserId, itemId = itemId
         )
-        val updated = (listOf(entry) + current).take(NOTIF_MAX_PER_INBOX)
-        ref.setValue(updated.map { it.toMap() }).await()
+        ref.setValue(((listOf(entry) + current).take(NOTIF_MAX_PER_INBOX)).map { it.toMap() }).await()
         PushQueue.enqueue("intern", toUid, entry.id, entry.type, entry.title, entry.body)
+    }
+
+    /** Someone sent a connection request — see ConnectionRepository.sendRequest(). */
+    suspend fun notifyConnectionRequest(toUid: String, fromUid: String, fromName: String, fromUsername: String) {
+        push(toUid, "connection_request", fromName, "@$fromUsername wants to connect with you", otherUserId = fromUid)
+    }
+
+    /** My connection request was accepted — see ConnectionRepository.acceptRequest(). */
+    suspend fun notifyConnectionAccepted(toUid: String, fromUid: String, fromName: String) {
+        push(toUid, "connection_accepted", fromName, "$fromName accepted your connection request", otherUserId = fromUid)
+    }
+
+    /** Someone in my Circle assigned me a task — see AssignmentRepository.assignTask(). */
+    suspend fun notifyTaskAssigned(toUid: String, fromUid: String, fromName: String, taskTitle: String, taskId: String) {
+        push(toUid, "task_assigned", fromName, "assigned you a task: $taskTitle", otherUserId = fromUid, itemId = taskId)
+    }
+
+    /** Someone in my Circle assigned me a habit — see AssignmentRepository.assignHabit(). */
+    suspend fun notifyHabitAssigned(toUid: String, fromUid: String, fromName: String, habitName: String, habitId: String) {
+        push(toUid, "habit_assigned", fromName, "assigned you a habit: $habitName", otherUserId = fromUid, itemId = habitId)
     }
 }

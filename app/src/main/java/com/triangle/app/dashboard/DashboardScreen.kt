@@ -3,7 +3,6 @@ package com.triangle.app.dashboard
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,19 +16,19 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Article
-import androidx.compose.material.icons.filled.CardGiftcard
-import androidx.compose.material.icons.filled.EmojiEvents
-import androidx.compose.material.icons.filled.EventAvailable
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.RateReview
+import androidx.compose.material.icons.outlined.EmojiEvents
+import androidx.compose.material.icons.outlined.EventAvailable
+import androidx.compose.material.icons.outlined.RateReview
+import androidx.compose.material.icons.outlined.SentimentSatisfied
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -42,16 +41,19 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.triangle.app.data.SessionStore
+import com.triangle.app.data.TasksHabitsUiPrefs
 import com.triangle.app.navigation.AppBottomNav
 import com.triangle.app.navigation.BottomNavTab
 import com.triangle.app.ui.theme.TriangleBrandPurple
@@ -61,6 +63,7 @@ import com.triangle.app.ui.theme.TriangleText2Dark
 import com.triangle.app.ui.theme.TriangleText2Light
 import com.triangle.app.ui.theme.TrianglePageBgDark
 import com.triangle.app.ui.theme.TrianglePageGradientLight
+import com.triangle.app.ui.theme.triangleDarkTheme
 
 // ── Design tokens ported 1:1 from style.css (see the same hex values in
 // :root's --brand/--brand-light, .points-big, .idash-analytics-box's inline
@@ -81,8 +84,7 @@ private data class Category(
     val enabled: Boolean,
     val bg: Color,
     val tint: Color,
-    val icon: ImageVector? = null,
-    val emoji: String? = null,
+    val icon: ImageVector,
     val onClick: (() -> Unit)? = null
 )
 
@@ -100,21 +102,29 @@ fun DashboardScreen(
     session: SessionStore.Session,
     onOpenTasks: () -> Unit,
     onOpenProfile: () -> Unit,
-    onOpenRewards: () -> Unit,
     onOpenNotifications: () -> Unit,
     onOpenDm: () -> Unit,
     onOpenSettings: () -> Unit,
-    onOpenLeaderboard: () -> Unit
+    onOpenLeaderboard: () -> Unit,
+    onOpenCircle: () -> Unit
 ) {
     val viewModel: DashboardViewModel = viewModel(
         factory = viewModelFactory { initializer { DashboardViewModel(session) } }
     )
     val state by viewModel.uiState.collectAsState()
-    val dark = isSystemInDarkTheme()
+    val dark = triangleDarkTheme()
+    val context = LocalContext.current
+    val tasksNavPane by TasksHabitsUiPrefs.lastActivePaneFlow(context.applicationContext, session.uid).collectAsState(initial = 0)
 
     Scaffold(
         bottomBar = {
-            AppBottomNav(active = BottomNavTab.HOME, onHome = {}, onTasks = onOpenTasks, onRewards = onOpenRewards, onProfile = onOpenProfile)
+            AppBottomNav(
+                active = BottomNavTab.HOME,
+                tasksLabel = if (tasksNavPane == 0) "Tasks" else "Habits",
+                onHome = {},
+                onTasks = onOpenTasks,
+                onProfile = onOpenProfile
+            )
         }
     ) { padding ->
         val bg = if (dark) Modifier.background(PageBgDark) else Modifier.background(Brush.linearGradient(PageGradientLight))
@@ -126,7 +136,7 @@ fun DashboardScreen(
                 state.error != null -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
                     Text(state.error ?: "Something went wrong", color = MaterialTheme.colorScheme.error)
                 }
-                else -> DashboardContent(state, padding, dark, onOpenRewards, onOpenNotifications, onOpenDm, onOpenSettings, onOpenLeaderboard)
+                else -> DashboardContent(state, padding, dark, onOpenNotifications, onOpenDm, onOpenSettings, onOpenLeaderboard, onOpenCircle)
             }
         }
     }
@@ -137,11 +147,11 @@ private fun DashboardContent(
     state: DashboardUiState,
     padding: PaddingValues,
     dark: Boolean,
-    onOpenRewards: () -> Unit,
     onOpenNotifications: () -> Unit,
     onOpenDm: () -> Unit,
     onOpenSettings: () -> Unit,
-    onOpenLeaderboard: () -> Unit
+    onOpenLeaderboard: () -> Unit,
+    onOpenCircle: () -> Unit
 ) {
     val text2 = if (dark) Text2Dark else Text2Light
 
@@ -149,8 +159,9 @@ private fun DashboardContent(
         modifier = Modifier
             .fillMaxSize()
             .padding(padding)
+            .verticalScroll(rememberScrollState())
     ) {
-        // ── Minimal header: hamburger + notif bell + DM icon ──
+        // ── Minimal header: hamburger + Circle + notif bell + DM icon ──
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -159,6 +170,9 @@ private fun DashboardContent(
                 Icon(Icons.Default.Menu, contentDescription = "Menu")
             }
             Spacer(Modifier.weight(1f))
+            IconButton(onClick = onOpenCircle) {
+                Icon(Icons.Default.People, contentDescription = "My Circle")
+            }
             IconButton(onClick = onOpenNotifications) {
                 Icon(Icons.Default.Notifications, contentDescription = "Notifications")
             }
@@ -168,7 +182,8 @@ private fun DashboardContent(
         }
 
         Column(Modifier.padding(horizontal = 14.dp)) {
-            // ── Greeting ──
+            // ── Greeting ── "Hello, <first name>" per the user's requested
+            // reference design, replacing the old time-of-day salutation.
             Text(
                 "Hello, ${state.firstName} 👋",
                 fontSize = 22.sp,
@@ -179,14 +194,14 @@ private fun DashboardContent(
             Text("Let's make today productive.", fontSize = 13.5.sp, color = text2)
             Spacer(Modifier.height(14.dp))
 
-            // ── Points card ──
+            // ── Points card ── slightly more compact than before per the
+            // user's requested reference design (smaller padding/number/trophy).
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(16.dp))
                     .background(Brush.linearGradient(listOf(BrandPurple, BrandPurpleLight)))
-                    .clickable { onOpenRewards() }
-                    .padding(18.dp, 16.dp),
+                    .padding(16.dp, 13.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -194,24 +209,24 @@ private fun DashboardContent(
                     Text(
                         "TOTAL POINTS",
                         color = Color.White.copy(alpha = 0.85f),
-                        fontSize = 11.sp,
+                        fontSize = 10.5.sp,
                         fontWeight = FontWeight.SemiBold
                     )
                     Text(
                         state.points.toLocaleString(),
                         color = Color.White,
-                        fontSize = 40.sp,
+                        fontSize = 33.sp,
                         fontWeight = FontWeight.Black
                     )
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
-                        Text("Performance", color = Color.White.copy(alpha = 0.85f), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
+                        Text("Performance", color = Color.White.copy(alpha = 0.85f), fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold)
                         Spacer(Modifier.width(6.dp))
-                        Text("${state.obediencePercent}%", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text("${state.obediencePercent}%", color = Color.White, fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
                     }
                     Spacer(Modifier.height(5.dp))
                     Box(
                         Modifier
-                            .width(100.dp)
+                            .width(90.dp)
                             .height(4.dp)
                             .clip(RoundedCornerShape(4.dp))
                             .background(Color.White.copy(alpha = 0.3f))
@@ -226,10 +241,10 @@ private fun DashboardContent(
                     }
                 }
                 Box(
-                    Modifier.size(64.dp),
+                    Modifier.size(66.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("🏆", fontSize = 44.sp)
+                    Text("🏆", fontSize = 48.sp)
                 }
             }
 
@@ -237,11 +252,10 @@ private fun DashboardContent(
 
             // ── Category shortcuts (horizontal scroll) ──
             val categories = listOf(
-                Category("Rewards", true, Color(0xFFE4DEFB), Color(0xFF6D5EF5), icon = Icons.Default.CardGiftcard, onClick = onOpenRewards),
-                Category("Leaderboard", true, Color(0xFFFEF3C7), Color(0xFFD97706), icon = Icons.Default.EmojiEvents, onClick = onOpenLeaderboard),
-                Category("Moods", false, Color(0xFFEDE9FE), Color(0xFF8B5CF6), emoji = "😊"),
-                Category("Reviews", false, Color(0xFFDCFCE7), Color(0xFF22C55E), icon = Icons.Default.RateReview),
-                Category("Attendance", false, Color(0xFFFDE2E2), Color(0xFFEF4444), icon = Icons.Default.EventAvailable)
+                Category("Leaderboard", true, Color(0xFFFEF3C7), Color(0xFFD97706), icon = Icons.Outlined.EmojiEvents, onClick = onOpenLeaderboard),
+                Category("Moods", false, Color(0xFFEDE9FE), Color(0xFF8B5CF6), icon = Icons.Outlined.SentimentSatisfied),
+                Category("Reviews", false, Color(0xFFDCFCE7), Color(0xFF22C55E), icon = Icons.Outlined.RateReview),
+                Category("Attendance", false, Color(0xFFFDE2E2), Color(0xFFEF4444), icon = Icons.Outlined.EventAvailable)
             )
             Row(
                 modifier = Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState()),
@@ -251,7 +265,7 @@ private fun DashboardContent(
                     val alpha = if (cat.enabled) 1f else 0.45f
                     Column(
                         modifier = Modifier
-                            .width(60.dp)
+                            .width(74.dp)
                             .clickable(enabled = cat.enabled) { cat.onClick?.invoke() },
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
@@ -262,14 +276,18 @@ private fun DashboardContent(
                                 .background(cat.bg.copy(alpha = alpha)),
                             contentAlignment = Alignment.Center
                         ) {
-                            if (cat.emoji != null) {
-                                Text(cat.emoji, fontSize = 22.sp)
-                            } else if (cat.icon != null) {
-                                Icon(cat.icon, contentDescription = cat.name, tint = cat.tint.copy(alpha = alpha), modifier = Modifier.size(22.dp))
-                            }
+                            Icon(cat.icon, contentDescription = cat.name, tint = cat.tint.copy(alpha = alpha), modifier = Modifier.size(24.dp))
                         }
                         Spacer(Modifier.height(7.dp))
-                        Text(cat.name, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = text2.copy(alpha = alpha))
+                        Text(
+                            cat.name,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = text2.copy(alpha = alpha),
+                            maxLines = 1,
+                            softWrap = false,
+                            textAlign = TextAlign.Center
+                        )
                     }
                 }
             }
@@ -280,36 +298,41 @@ private fun DashboardContent(
 
             val cards = listOf(
                 AnalyticsCard("Total Tasks", state.totalTasksAll.toLocaleString(), listOf(Color(0xFFEFEAFD), Color(0xFFF8F7FE)), Color(0xFF6D5EF5)),
-                AnalyticsCard("Coins Balance", state.coinBalance.toLocaleString(), listOf(Color(0xFFFEF7E6), Color(0xFFFFFBF0)), Color(0xFFD97706)),
+                AnalyticsCard("Tasks Completed", state.tasksCompleted.toLocaleString(), listOf(Color(0xFFE0F7FA), Color(0xFFF2FCFD)), Color(0xFF06B6D4)),
                 AnalyticsCard("XP This Week", state.weeklyXP.toLocaleString(), listOf(Color(0xFFFDEEEE), Color(0xFFFEF8F8)), Color(0xFFEF4444)),
                 AnalyticsCard("Current Streak", state.currentStreak.toString(), listOf(Color(0xFFFFF1E2), Color(0xFFFFFAF3)), Color(0xFFF97316)),
                 AnalyticsCard("Longest Streak", state.longestStreak.toString(), listOf(Color(0xFFE9FBEF), Color(0xFFF6FDF8)), Color(0xFF22C55E)),
                 AnalyticsCard("Current Rank", "#${state.rank}", listOf(Color(0xFFEAF2FE), Color(0xFFF6FAFE)), Color(0xFF3B82F6))
             )
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(2),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.fillMaxWidth().height(((cards.size + 1) / 2 * 96).dp)
-            ) {
-                items(cards) { card ->
-                    val cardBg = if (dark) CardBgDark else null
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(1.7f)
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(if (cardBg != null) Brush.linearGradient(listOf(cardBg, cardBg)) else Brush.linearGradient(card.gradient))
-                            .padding(16.dp, 16.dp, 16.dp, 18.dp),
-                        verticalArrangement = Arrangement.Bottom
-                    ) {
-                        Text(card.label, fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = text2, modifier = Modifier.padding(bottom = 10.dp))
-                        Text(card.value, fontSize = 23.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onBackground)
+            // Hand-rolled 2-column grid (not LazyVerticalGrid) — a fixed
+            // small list of cards self-sizing from their own aspect ratio,
+            // so it can never under-measure its own height and clip the
+            // last row the way a LazyVerticalGrid with a guessed fixed
+            // height did.
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                cards.chunked(2).forEach { rowCards ->
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        rowCards.forEach { card ->
+                            val cardBg = if (dark) CardBgDark else null
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .aspectRatio(2.2f)
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(if (cardBg != null) Brush.linearGradient(listOf(cardBg, cardBg)) else Brush.linearGradient(card.gradient))
+                                    .padding(14.dp, 12.dp, 14.dp, 12.dp),
+                                verticalArrangement = Arrangement.Bottom
+                            ) {
+                                Text(card.label, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = text2, modifier = Modifier.padding(bottom = 6.dp))
+                                Text(card.value, fontSize = 19.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onBackground)
+                            }
+                        }
+                        if (rowCards.size == 1) Spacer(Modifier.weight(1f))
                     }
                 }
             }
 
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(12.dp))
         }
     }
 }

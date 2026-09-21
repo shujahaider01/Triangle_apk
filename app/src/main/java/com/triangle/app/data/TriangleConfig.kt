@@ -22,10 +22,22 @@ object TriangleConfig {
     const val EMAILJS_PUBLIC_KEY = "bRNGLcTaJW2tTsFC1"
     const val EMAILJS_PRIVATE_KEY = "20c9Z-zyjYmWJRMPaoTQw"
 
+    // Invite email template (see emailjs-invite-template.html at the repo
+    // root). Template params sent by EmailJsClient.sendInviteEmail():
+    // to_email, inviter_name, app_name.
+    const val EMAILJS_INVITE_TEMPLATE_ID = "template_lzxf5wq"
+
     // Fixed shared namespace for DM data — script.js's DM_ORG_ID is the
     // literal constant 'org1' from config.js, NOT the signed-in user's own
     // (dynamic, per-account) orgId. Every account's DM data lives under this
-    // one shared path regardless of which org their tasks/rewards belong to
+    // one shared path regardless of which org their tasks belong to
     // — see DmRepository's header comment for why this matters.
     const val DM_ORG_ID = "org1"
+
+    // Fixed shared root for the social graph (usernames index, connections,
+    // connection requests — see data/UsernameRepository.kt and the
+    // Connect->Assign->Complete->Earn model). Same reasoning as DM_ORG_ID
+    // above: two connected people live in two different, mutually-invisible
+    // per-account orgs, so this state can't live inside either one.
+    const val SOCIAL_ROOT = "social"
 }

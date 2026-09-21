@@ -15,8 +15,7 @@ import java.time.LocalDate
  * NEVER a full `organizations/{orgId}/data` blob write — see the
  * Milestone 2 plan's "Firebase writes: narrow sub-path writes only"
  * decision for why (a full-blob write from native code would silently
- * destroy sibling fields, like rewards/feed/complaints, this app never
- * loaded).
+ * destroy sibling fields, like feed/complaints, this app never loaded).
  */
 object TaskRepository {
     private fun orgData(orgId: String) =
@@ -33,6 +32,25 @@ object TaskRepository {
             @Suppress("UNCHECKED_CAST")
             val raw = (snap.value as? Map<String, Any?>) ?: emptyMap()
             raw.entries.filter { (it.value as? Map<*, *>)?.get("done") == true }.map { it.key }.toSet()
+        }
+
+    /**
+     * "taskId-internId" -> the millis it was marked done, for the upcoming
+     * "Completed" date filter (see the Filters feature plan) — a separate
+     * flow from completionsFlow() rather than changing that one's return
+     * type, since most existing callers only ever needed the done/not-done
+     * set. A completion written before this field existed has no recorded
+     * time; those fall back to 0L (epoch), which reads as "unknown," not
+     * "just completed" — callers filtering by a recent date range should
+     * exclude 0L rather than treat it as a match.
+     */
+    fun completionTimestampsFlow(orgId: String): Flow<Map<String, Long>> =
+        orgData(orgId).child("taskCompletions").valueFlow().map { snap ->
+            @Suppress("UNCHECKED_CAST")
+            val raw = (snap.value as? Map<String, Any?>) ?: emptyMap()
+            raw.entries
+                .filter { (it.value as? Map<*, *>)?.get("done") == true }
+                .associate { it.key to (((it.value as? Map<*, *>)?.get("completedAt") as? Number)?.toLong() ?: 0L) }
         }
 
     suspend fun saveNewTask(orgId: String, task: Task) {
@@ -62,7 +80,7 @@ object TaskRepository {
         ref.setValue(filtered).await()
     }
 
-    /** Immediate write (completion flag + points/coins) — matches script.js's ntdChangeStatus() "Mark Complete" path. */
+    /** Immediate write (completion flag + points) — matches script.js's ntdChangeStatus() "Mark Complete" path. */
     suspend fun completeTask(orgId: String, uid: String, task: Task) {
         setCompletionFlag(orgId, task.id, uid, done = true)
         if (task.points > 0) awardTaskPoints(orgId, uid, task)
@@ -70,7 +88,7 @@ object TaskRepository {
 
     /**
      * Matches ntdChangeStatus()'s un-complete branch: clears the completion
-     * flag only. Deliberately does NOT revert points/coins — neither does
+     * flag only. Deliberately does NOT revert points — neither does
      * the source app via this path (only the 5-second undo toast on the
      * task-LIST quick-complete flow reverts points, and it does so by
      * simply never having committed the write yet — see TasksViewModel).
@@ -84,7 +102,7 @@ object TaskRepository {
         @Suppress("UNCHECKED_CAST")
         val raw = (ref.get().await().value as? Map<String, Any?>) ?: emptyMap()
         val key = "$taskId-$uid"
-        val updated = if (done) raw + (key to mapOf("done" to true)) else raw - key
+        val updated = if (done) raw + (key to mapOf("done" to true, "completedAt" to System.currentTimeMillis())) else raw - key
         ref.setValue(updated).await()
     }
 
@@ -106,8 +124,6 @@ object TaskRepository {
             "date" to LocalDate.now().toString()
         )
         historyRef.setValue(listOf(entry) + history).await() // unshift — newest first, matches source
-
-        CoinWallet.award(orgId, uid, task.points, "task", task.title, task.id)
     }
 
     /**

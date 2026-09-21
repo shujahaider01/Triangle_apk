@@ -31,7 +31,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.triangle.app.charts.BarChart
 import com.triangle.app.charts.DonutChart
-import com.triangle.app.charts.GroupedBarChart
 import com.triangle.app.charts.LineAreaChart
 import com.triangle.app.charts.ProgressBarItem
 import com.triangle.app.charts.ProgressBarList
@@ -40,7 +39,7 @@ import java.time.Month
 
 private val MonthNames = Month.entries.map { it.name.take(3).lowercase().replaceFirstChar { c -> c.uppercase() } }
 
-/** Native port of renderInternProfile()'s Analytics tab: 6 chart cards, each faithful to script.js's ported computations. */
+/** Native port of renderInternProfile()'s Analytics tab: 5 chart cards, each faithful to script.js's ported computations. */
 @Composable
 fun AnalyticsTab(
     state: ProfileUiState,
@@ -56,8 +55,15 @@ fun AnalyticsTab(
         Card(palette) {
             val wp = state.weeklyProductivity
             if (wp != null && wp.weeks.isNotEmpty()) {
-                BarChart(wp.weeks.map { it.toFloat() }, ProfileColors.Purple, maxValueOverride = 100f, modifier = Modifier.fillMaxWidth().height(120.dp))
-                Spacer(Modifier.height(6.dp))
+                BarChart(
+                    wp.weeks.map { it.toFloat() },
+                    ProfileColors.Purple,
+                    maxValueOverride = 100f,
+                    labels = wp.weeks.indices.map { "W${it + 1}" },
+                    valueLabels = wp.weeks.map { "$it%" },
+                    modifier = Modifier.fillMaxWidth().height(150.dp)
+                )
+                Spacer(Modifier.height(10.dp))
                 Text("This month: ${wp.score}%", fontSize = 11.5.sp, color = palette.text3)
             } else EmptyChartNote(palette)
         }
@@ -101,30 +107,17 @@ fun AnalyticsTab(
         }
 
         Spacer(Modifier.height(16.dp))
-        SectionTitle("Coins Earned vs Spent", palette)
-        Card(palette) {
-            val cvs = state.coinsEarnedVsSpent
-            if (cvs != null && cvs.weeks.isNotEmpty()) {
-                GroupedBarChart(
-                    groups = cvs.weeks.map { it.earned.toFloat() to it.spent.toFloat() },
-                    color1 = Color(0xFF22C55E), color2 = Color(0xFFEF4444),
-                    maxValueOverride = cvs.axisMax.toFloat(),
-                    modifier = Modifier.fillMaxWidth().height(120.dp)
-                )
-                Spacer(Modifier.height(8.dp))
-                LegendRow(listOf("Earned" to Color(0xFF22C55E), "Spent" to Color(0xFFEF4444)), palette)
-            } else EmptyChartNote(palette)
-        }
-
-        Spacer(Modifier.height(16.dp))
         SectionTitle("Overdue Tasks Timeline", palette)
         Card(palette) {
             if (state.overdueTimeline.size >= 2) {
                 LineAreaChart(
                     points = state.overdueTimeline.map { it.count.toFloat() },
                     lineColor = Color(0xFFF43F5E),
-                    modifier = Modifier.fillMaxWidth().height(120.dp)
+                    labels = state.overdueTimeline.map { it.label },
+                    modifier = Modifier.fillMaxWidth().height(150.dp)
                 )
+                Spacer(Modifier.height(6.dp))
+                Text("Overdue tasks per week — higher means more piled up that week.", fontSize = 11.sp, color = palette.text3)
             } else EmptyChartNote(palette)
         }
 
@@ -140,8 +133,9 @@ fun AnalyticsTab(
                     points = mp.months.map { it.pct.toFloat() },
                     lineColor = Color(0xFF3B82F6),
                     maxValueOverride = 100f,
-                    showDots = false,
-                    modifier = Modifier.fillMaxWidth().height(120.dp)
+                    showDots = true,
+                    labels = mp.months.map { it.label },
+                    modifier = Modifier.fillMaxWidth().height(150.dp)
                 )
                 Spacer(Modifier.height(10.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {

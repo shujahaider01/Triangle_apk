@@ -2,7 +2,6 @@ package com.triangle.app.navigation
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,8 +11,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.List
-import androidx.compose.material.icons.filled.CardGiftcard
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Icon
@@ -30,29 +28,30 @@ import com.triangle.app.ui.theme.TriangleBrandPurple
 import com.triangle.app.ui.theme.TriangleCardBgDark
 import com.triangle.app.ui.theme.TriangleText2Dark
 import com.triangle.app.ui.theme.TriangleText2Light
+import com.triangle.app.ui.theme.triangleDarkTheme
 
 /** Which top-level section's bottom-nav tab is currently active. */
-enum class BottomNavTab { HOME, TASKS, REWARDS, PROFILE }
+enum class BottomNavTab { HOME, TASKS, PROFILE }
 
 /**
- * The "Home / Tasks / Rewards / Profile" flat bar (.duo-nav/.duo-nav-btn/
+ * The "Home / Tasks / Profile" flat bar (.duo-nav/.duo-nav-btn/
  * .duo-nav-pill in style.css — brand purple active tint, not the global
- * accent) — originally Dashboard-only; extracted here so Tasks/Habits,
- * Profile, and the Rewards Store show the same bar too, letting the user
- * jump directly between these four top-level sections instead of always
- * routing back through Dashboard first. The active tab's own callback is
- * never invoked (its item is simply not clickable), matching how Dashboard
- * always treated its own "Home" item before this was shared.
+ * accent) — originally Dashboard-only; extracted here so Tasks/Habits and
+ * Profile show the same bar too, letting the user jump directly between
+ * these three top-level sections instead of always routing back through
+ * Dashboard first. The active tab's own callback is never invoked (its item
+ * is simply not clickable), matching how Dashboard always treated its own
+ * "Home" item before this was shared.
  */
 @Composable
 fun AppBottomNav(
     active: BottomNavTab,
     onHome: () -> Unit,
     onTasks: () -> Unit,
-    onRewards: () -> Unit,
-    onProfile: () -> Unit
+    onProfile: () -> Unit,
+    tasksLabel: String = "Tasks"
 ) {
-    val dark = isSystemInDarkTheme()
+    val dark = triangleDarkTheme()
     val barBg = if (dark) TriangleCardBgDark else Color.White
     val text2 = if (dark) TriangleText2Dark else TriangleText2Light
 
@@ -60,8 +59,11 @@ fun AppBottomNav(
 
     val items = listOf(
         NavItem(BottomNavTab.HOME, "Home", Icons.Default.Home, onHome),
-        NavItem(BottomNavTab.TASKS, "Tasks", Icons.AutoMirrored.Filled.List, onTasks),
-        NavItem(BottomNavTab.REWARDS, "Rewards", Icons.Default.CardGiftcard, onRewards),
+        // TasksHabitsScreen passes "Tasks" or "Habits" here depending on
+        // which pane of its two-pane pager is currently showing, so this
+        // tab's label follows you as you swipe instead of always reading
+        // "Tasks" even while looking at Habits.
+        NavItem(BottomNavTab.TASKS, tasksLabel, Icons.Default.GridView, onTasks),
         NavItem(BottomNavTab.PROFILE, "Profile", Icons.Default.Person, onProfile)
     )
 

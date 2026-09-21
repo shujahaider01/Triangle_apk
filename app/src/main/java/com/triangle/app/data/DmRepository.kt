@@ -17,8 +17,8 @@ import kotlinx.coroutines.tasks.await
  * IMPORTANT: every path here is rooted at `dmData/orgs/{TriangleConfig.
  * DM_ORG_ID}` — the FIXED shared constant `"org1"`, never `session.orgId`.
  * script.js's own `DM_ORG_ID` (script.js:1011) resolves to that same fixed
- * literal regardless of which dynamic org the signed-in user's tasks/
- * rewards actually live under; every account's DM data lives in this one
+ * literal regardless of which dynamic org the signed-in user's tasks
+ * actually live under; every account's DM data lives in this one
  * shared subtree. Using `session.orgId` here would put each account's DMs
  * in a different, mutually-invisible bucket and silently break
  * cross-account messaging.

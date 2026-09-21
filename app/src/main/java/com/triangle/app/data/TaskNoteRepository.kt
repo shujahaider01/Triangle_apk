@@ -6,17 +6,17 @@ import kotlinx.coroutines.tasks.await
 import java.io.ByteArrayOutputStream
 
 /**
- * Firebase Storage upload for note photos — decoupled from Google
- * Drive on purpose (the user's explicit choice: Drive OAuth is scoped to
- * Settings > Backup & Restore only, so a photo note works whether or not
- * Drive is ever connected). Requires Storage to actually be enabled on the
- * `triangle-apk` Firebase project (Console > Build > Storage > Get
- * started) — it wasn't as of this feature landing; these uploads will
- * throw a real exception from the SDK until that's done, surfaced to the
- * UI rather than silently failing. Despite the name, this now serves both
- * Task notes (uploadNotePhoto) and Habit Detail's photo timeline
- * (uploadHabitPhoto) — the two are otherwise identical (compress, upload,
- * return a download URL), just scoped under different Storage paths.
+ * Firebase Storage upload for note photos. Requires Storage to actually be
+ * enabled on the `triangle-apk` Firebase project (Console > Build > Storage
+ * > Get started) — it wasn't as of this feature landing, so these uploads
+ * throw a real exception from the SDK until that's done, surfaced to the UI
+ * rather than silently failing. Serves Task notes (uploadNotePhoto) and
+ * Habit Detail's photo timeline (uploadHabitPhoto) — both otherwise
+ * identical (compress, upload, return a download URL), just scoped under
+ * different Storage paths. Profile's avatar upload moved to Google Drive
+ * instead (see DriveImageHelper/ProfileViewModel.requestPhotoUpload) once
+ * Storage turned out to still be disabled; the same move could be made here
+ * later if these two also need to work without Storage enabled.
  */
 object TaskNoteRepository {
     private fun storage() = FirebaseStorage.getInstance()

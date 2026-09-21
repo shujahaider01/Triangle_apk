@@ -26,7 +26,6 @@ object OrgDataRepository {
         val tasks: List<Map<String, Any?>>,
         val taskCompletions: Map<String, Any?>,
         val points: Int,
-        val coinBalance: Int,
         val weeklyXP: Int,
         /** id -> points for every org member with a submissions record, admin placeholder id "99" excluded. */
         val memberPoints: Map<String, Int>
@@ -45,9 +44,8 @@ object OrgDataRepository {
 
         val mySubmission = submissions[userId] as? Map<*, *>
         val points = (mySubmission?.get("points") as? Number)?.toInt() ?: 0
-        val wallet = mySubmission?.get("coinWallet") as? Map<*, *>
-        val coinBalance = (wallet?.get("balance") as? Number)?.toInt() ?: 0
-        val weeklyXP = walletWeeklyXp(wallet, DashboardStats.getWeekBounds(0))
+        val pointHistory = asMapList(mySubmission?.get("pointHistory"))
+        val weeklyXP = ProfileStats.getWeeklyXpRaw(pointHistory).sum()
 
         // Approximates script.js's roster-scan-based INTERNS list (id != 99)
         // with the submissions map's own keys — every real org member has a
@@ -60,7 +58,7 @@ object OrgDataRepository {
             .mapValues { (_, v) -> (v as? Map<*, *>)?.get("points") as? Number }
             .mapValues { (_, v) -> v?.toInt() ?: 0 }
 
-        return DashboardSnapshot(tasks, taskCompletions, points, coinBalance, weeklyXP, memberPoints)
+        return DashboardSnapshot(tasks, taskCompletions, points, weeklyXP, memberPoints)
     }
 
     data class ProfileSnapshot(
@@ -70,8 +68,6 @@ object OrgDataRepository {
         val createdAt: Long,
         /** submissions/{uid}/pointHistory — newest first, matches script.js's unshift() ordering. */
         val pointHistory: List<Map<String, Any?>>,
-        /** submissions/{uid}/coinWallet/transactions — newest first. */
-        val walletTransactions: List<Map<String, Any?>>,
         /** id -> points for every org member with a submissions record, admin placeholder id "99" excluded. */
         val memberPoints: Map<String, Int>
     )
@@ -93,8 +89,6 @@ object OrgDataRepository {
 
         @Suppress("UNCHECKED_CAST")
         val pointHistory = asMapList(mySubmission?.get("pointHistory"))
-        val wallet = mySubmission?.get("coinWallet") as? Map<*, *>
-        val walletTransactions = asMapList(wallet?.get("transactions"))
 
         val createdAt = (db.getReference("users/$userId/createdAt").get().await().value as? Number)?.toLong() ?: 0L
 
@@ -103,22 +97,7 @@ object OrgDataRepository {
             .mapValues { (_, v) -> (v as? Map<*, *>)?.get("points") as? Number }
             .mapValues { (_, v) -> v?.toInt() ?: 0 }
 
-        return ProfileSnapshot(tasks, completions, points, createdAt, pointHistory, walletTransactions, memberPoints)
-    }
-
-    private fun walletWeeklyXp(wallet: Map<*, *>?, bounds: DashboardStats.WeekBounds): Int {
-        val raw = wallet?.get("transactions")
-        val list: List<Map<*, *>> = when (raw) {
-            is List<*> -> raw.mapNotNull { it as? Map<*, *> }
-            is Map<*, *> -> raw.values.mapNotNull { it as? Map<*, *> }
-            else -> emptyList()
-        }
-        return list
-            .filter { t ->
-                t["type"] == "earned" &&
-                    ((t["timestamp"] as? Number)?.toLong() ?: 0L).let { it in bounds.startMillis until bounds.endMillis }
-            }
-            .sumOf { (it["xpEarned"] as? Number)?.toInt() ?: 0 }
+        return ProfileSnapshot(tasks, completions, points, createdAt, pointHistory, memberPoints)
     }
 
     @Suppress("UNCHECKED_CAST")

@@ -13,9 +13,12 @@ import com.triangle.app.data.anyToMapList
  * mirrors patchDB()'s own tolerance for missing/malformed fields.
  *
  * Fields NOT ported (see the Milestone 2 plan's scope trims): `symbol`,
- * `attachmentName`, `priority`, `inProgress`, `sharedToUsers`/
- * `sharedFromUserId` etc. (the cross-account share flow, which is disabled
- * in the source app itself via `SHARED_TASK_MODE_ENABLED=false`).
+ * `attachmentName`, `inProgress`. `assignedTo`/`sharedWith` were dormant
+ * scaffolding until the Connect->Assign->Complete->Earn model (Milestone 3,
+ * see .claude/plans/enchanted-brewing-beacon.md) activated them for real
+ * cross-account assignment; `priority` was added in that same milestone as
+ * the source of truth `points` is derived from (data/PriorityXp.kt), not a
+ * faithful port of the source app's own `priority` field.
  */
 data class RepeatRule(
     val freq: String, // "Days" | "Weekdays" | "Weeks" | "Months" | "Years"
@@ -82,6 +85,7 @@ data class Task(
     val description: String = "",
     val category: String = "Personal", // "Office" | "Academic" | "Personal"
     val points: Int = 0,
+    val priority: String = "medium", // "low" | "medium" | "high" | "critical" — see data/PriorityXp.kt; points are derived from this at assignment time, not freely entered
     val dueDate: String? = null,
     val instanceDate: String? = null,
     val repeat: RepeatRule? = null,
@@ -110,7 +114,7 @@ data class Task(
 
     fun toMap(): Map<String, Any?> = mapOf(
         "id" to id, "title" to title, "description" to description, "category" to category,
-        "points" to points, "dueDate" to dueDate, "instanceDate" to instanceDate,
+        "points" to points, "priority" to priority, "dueDate" to dueDate, "instanceDate" to instanceDate,
         "repeat" to repeat?.toMap(), "isTemplate" to isTemplate, "templateId" to templateId,
         "lastGenerated" to lastGenerated, "paused" to paused,
         "isPersonal" to isPersonal, "createdBy" to createdBy, "assignedTo" to assignedTo, "sharedWith" to sharedWith,
@@ -132,6 +136,7 @@ data class Task(
                 description = m["description"] as? String ?: "",
                 category = m["category"] as? String ?: "Personal",
                 points = (m["points"] as? Number)?.toInt() ?: 0,
+                priority = m["priority"] as? String ?: "medium",
                 dueDate = m["dueDate"] as? String,
                 instanceDate = m["instanceDate"] as? String,
                 repeat = (m["repeat"] as? Map<*, *>)?.let { RepeatRule.fromMap(it) },

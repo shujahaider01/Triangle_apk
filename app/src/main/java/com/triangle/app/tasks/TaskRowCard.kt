@@ -6,7 +6,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -37,6 +36,7 @@ import androidx.compose.ui.unit.sp
 import com.triangle.app.data.HabitPalette
 import com.triangle.app.data.models.Task
 import com.triangle.app.ui.SvgPathIcon
+import com.triangle.app.ui.theme.triangleDarkTheme
 
 private val NeutralIconBgLight = Color(0xFFF0F2F5)
 private val NeutralIconBgDark = Color(0xFF2C2C2E)
@@ -52,7 +52,7 @@ fun TaskRowCard(
     val color = runCatching { Color(android.graphics.Color.parseColor(task.iconColor ?: HabitPalette.DEFAULT_COLOR)) }
         .getOrDefault(MaterialTheme.colorScheme.primary)
     val svg = task.iconSvg ?: HabitPalette.ICONS.getValue(HabitPalette.DEFAULT_ICON_KEY)
-    val dark = isSystemInDarkTheme()
+    val dark = triangleDarkTheme()
 
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
@@ -83,6 +83,8 @@ fun TaskRowCard(
         }
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
+            // Description is deliberately not shown here (only on Task Detail)
+            // — the user asked for the list row to stay to just the title.
             Text(
                 task.title,
                 fontSize = 15.sp,
@@ -90,14 +92,6 @@ fun TaskRowCard(
                 color = if (done) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f) else MaterialTheme.colorScheme.onSurface,
                 maxLines = 1
             )
-            if (task.description.isNotBlank()) {
-                Text(
-                    task.description,
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
-                    maxLines = 1
-                )
-            }
         }
         Spacer(Modifier.width(8.dp))
         if (task.points > 0) {

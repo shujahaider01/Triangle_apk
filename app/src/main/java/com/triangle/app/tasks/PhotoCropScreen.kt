@@ -69,9 +69,10 @@ private val CROP_RATIOS = listOf(
 fun PhotoCropView(
     sourceBitmap: Bitmap,
     onConfirm: (Bitmap) -> Unit,
-    onCancel: () -> Unit
+    onCancel: () -> Unit,
+    squareByDefault: Boolean = false
 ) {
-    var ratio by remember { mutableStateOf(CROP_RATIOS[0]) }
+    var ratio by remember { mutableStateOf(if (squareByDefault) CROP_RATIOS[1] else CROP_RATIOS[0]) }
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
     var viewportSize by remember { mutableStateOf(IntSize.Zero) }

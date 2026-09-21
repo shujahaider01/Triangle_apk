@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="192dp"
+    android:height="192dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Same rounded-triangle mark as ic_launcher_foreground.xml (Tasks /
+         Habits / Reward dots), sized up for the splash screen's icon slot;
+         windowSplashScreenBackground (solid brand orange) stands in for the
+         launcher icon's gradient background layer, which that API can't use. -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M49,32.66 L33.02,60.34 Q28.02,69 38.02,69 L69.98,69 Q79.98,69 74.98,60.34 L59,32.66 Q54,24 49,32.66 Z" />
+    <path
+        android:fillColor="#E85D26"
+        android:pathData="M54,41.4m-7,0a7,7 0,1 1,14 0a7,7 0,1 1,-14 0" />
+    <path
+        android:fillColor="#6D5EF5"
+        android:pathData="M43.09,60.3m-7,0a7,7 0,1 1,14 0a7,7 0,1 1,-14 0" />
+    <path
+        android:fillColor="#F5B942"
+        android:pathData="M64.91,60.3m-7,0a7,7 0,1 1,14 0a7,7 0,1 1,-14 0" />
+</vector>

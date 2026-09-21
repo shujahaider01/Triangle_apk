@@ -73,19 +73,19 @@ data class DetailHeroAction(
 )
 
 /**
- * The full colored hero: topbar (back, optional edit, static status pill),
- * icon ring + title + optional description pill, and the actions row
- * (left label pill for XP/frequency, right row of circular action
- * buttons) — matches .ntd-hero/.ntd-topbar/.ntd-hero-body/.ntd-hero-actions.
+ * The full colored hero: topbar (back, optional edit), icon ring + title,
+ * and the actions row (left label pill for XP/frequency, right row of
+ * circular action buttons) — matches .ntd-hero/.ntd-topbar/.ntd-hero-body/
+ * .ntd-hero-actions. No status pill and no description here — both would
+ * duplicate what the General/Details accordion sections below already show
+ * (description has its own dedicated field there; status is redundant with
+ * the single "mark complete" affordance the task/habit list row already is).
  */
 @Composable
 fun DetailHero(
     heroColor: Color,
     iconSvg: String,
     title: String,
-    description: String?,
-    statusLabel: String,
-    statusColor: Color,
     pillIcon: ImageVector,
     pillText: String,
     actions: List<DetailHeroAction>,
@@ -103,19 +103,6 @@ fun DetailHero(
                 HeroCircleButton(onClick = onEdit) {
                     Icon(Icons.Default.Edit, contentDescription = "Edit", tint = Color.White, modifier = Modifier.size(18.dp))
                 }
-                Spacer(Modifier.width(8.dp))
-            }
-            Row(
-                Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Color.Black.copy(alpha = 0.2f))
-                    .border(1.5.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
-                    .padding(start = 8.dp, end = 12.dp, top = 5.dp, bottom = 5.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Box(Modifier.size(8.dp).clip(CircleShape).background(statusColor))
-                Text(statusLabel, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
             }
         }
 
@@ -128,12 +115,6 @@ fun DetailHero(
             }
             Spacer(Modifier.size(10.dp))
             Text(title, fontSize = 20.sp, fontWeight = FontWeight.Black, color = Color.White, textAlign = TextAlign.Center, letterSpacing = (-0.3).sp)
-            if (!description.isNullOrBlank()) {
-                Spacer(Modifier.size(6.dp))
-                Box(Modifier.clip(RoundedCornerShape(8.dp)).background(Color.Black.copy(alpha = 0.18f)).padding(horizontal = 12.dp, vertical = 6.dp)) {
-                    Text(description, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color.White, textAlign = TextAlign.Center, lineHeight = 18.sp)
-                }
-            }
         }
 
         Row(
@@ -274,6 +255,26 @@ fun DetailInfoRow(label: String, value: String, valueColor: Color? = null, isLas
         ) {
             Text(label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
             Text(value, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = valueColor ?: MaterialTheme.colorScheme.onSurface, textAlign = TextAlign.End)
+        }
+        if (!isLast) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+    }
+}
+
+/** Same as DetailInfoRow but the value is a small avatar + name — for "Assigned By"/"Assigned To" rows, so the person is recognizable at a glance instead of just a name string. */
+@Composable
+fun DetailInfoRowPerson(label: String, name: String, photoUrl: String?, isLast: Boolean = false) {
+    Column {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 9.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                com.triangle.app.ui.components.Avatar(name, photoUrl, size = 24.dp, fontSize = 10.sp)
+                Spacer(Modifier.width(8.dp))
+                Text(name, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+            }
         }
         if (!isLast) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
     }

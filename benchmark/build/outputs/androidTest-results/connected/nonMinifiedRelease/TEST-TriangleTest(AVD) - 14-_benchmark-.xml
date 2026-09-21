@@ -1,0 +1,11 @@
+<?xml version='1.0' encoding='UTF-8' ?>
+<testsuites tests="1" failures="0" errors="0" skipped="0" time="75.102" timestamp="2026-09-16T15:44:51" hostname="localhost">
+  <testsuite name="com.triangle.app.benchmark.StartupBaselineProfile" tests="1" failures="0" errors="0" skipped="0" time="74.349" timestamp="2026-09-16T15:44:51" hostname="localhost">
+    <properties>
+      <property name="device" value="TriangleTest(AVD) - 14" />
+      <property name="flavor" value="" />
+      <property name="project" value=":benchmark" />
+    </properties>
+    <testcase name="startup" classname="com.triangle.app.benchmark.StartupBaselineProfile" time="74.349" />
+  </testsuite>
+</testsuites>

@@ -1,9 +1,9 @@
 package com.triangle.app.profile
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.graphics.Color
+import com.triangle.app.ui.theme.triangleDarkTheme
 
 /**
  * Design tokens ported 1:1 from style.css's `--np2-*` custom properties
@@ -38,7 +38,7 @@ data class ProfilePalette(
 @Composable
 @ReadOnlyComposable
 fun profilePalette(): ProfilePalette {
-    val dark = isSystemInDarkTheme()
+    val dark = triangleDarkTheme()
     return if (dark) {
         ProfilePalette(ProfileColors.SurfaceDark, ProfileColors.BorderDark, ProfileColors.TextDark, ProfileColors.Text2Dark, ProfileColors.Text3Dark)
     } else {

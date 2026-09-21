@@ -5,7 +5,6 @@ import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -49,6 +48,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.triangle.app.ui.theme.TriangleBrandPurple
+import com.triangle.app.ui.theme.triangleDarkTheme
 import java.text.DateFormat
 import java.util.Date
 
@@ -58,7 +58,7 @@ import java.util.Date
 fun BackupRestoreScreen(viewModel: BackupRestoreViewModel, onBack: () -> Unit) {
     val context = LocalContext.current
     val state by viewModel.uiState.collectAsState()
-    val dark = isSystemInDarkTheme()
+    val dark = triangleDarkTheme()
     val surface2 = if (dark) Color(0xFF1E2738) else Color(0xFFF3F4F6)
     val text2 = if (dark) Color(0xFFA1A1AA) else Color(0xFF6B7280)
     var showRestoreConfirm by remember { mutableStateOf(false) }
@@ -164,7 +164,7 @@ fun BackupRestoreScreen(viewModel: BackupRestoreViewModel, onBack: () -> Unit) {
         AlertDialog(
             onDismissRequest = { showRestoreConfirm = false },
             title = { Text("Restore from backup?") },
-            text = { Text("This replaces all of your current tasks, habits, rewards, and other data with whatever was in your most recent Google Drive backup. This can't be undone.") },
+            text = { Text("This replaces all of your current tasks, habits, and other data with whatever was in your most recent Google Drive backup. This can't be undone.") },
             confirmButton = {
                 TextButton(onClick = {
                     showRestoreConfirm = false

@@ -1,8 +1,13 @@
 package com.triangle.app.navigation
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -13,7 +18,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import com.triangle.app.ui.theme.TriangleBrandPurple
+import com.triangle.app.ui.theme.TriangleOrange
+import kotlinx.coroutines.delay
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
@@ -27,6 +40,13 @@ import androidx.navigation.navArgument
 import com.triangle.app.MainActivity
 import com.triangle.app.auth.LoginScreen
 import com.triangle.app.auth.SignupScreen
+import com.triangle.app.auth.UsernameSetupScreen
+import com.triangle.app.circle.CircleScreen
+import com.triangle.app.circle.CircleSearchScreen
+import com.triangle.app.circle.CircleViewModel
+import com.triangle.app.circle.ConnectEmailScreen
+import com.triangle.app.circle.ConnectScreen
+import com.triangle.app.circle.ConnectionRequestsScreen
 import com.triangle.app.dashboard.DashboardScreen
 import com.triangle.app.TokenStore
 import com.triangle.app.data.SessionStore
@@ -40,14 +60,7 @@ import com.triangle.app.leaderboard.LeaderboardViewModel
 import com.triangle.app.notifications.NotificationsScreen
 import com.triangle.app.notifications.NotificationsViewModel
 import com.triangle.app.profile.ProfileScreen
-import com.triangle.app.rewards.CreateEditRewardScreen
-import com.triangle.app.rewards.ManageRewardsScreen
-import com.triangle.app.rewards.RewardDetailScreen
-import com.triangle.app.rewards.RewardHistoryScreen
-import com.triangle.app.rewards.RewardSettingsScreen
-import com.triangle.app.rewards.RewardStoreScreen
-import com.triangle.app.rewards.RewardWalletScreen
-import com.triangle.app.rewards.RewardsViewModel
+import com.triangle.app.profile.PublicProfileScreen
 import com.triangle.app.tasks.AddNoteScreen
 import com.triangle.app.tasks.CreateEditHabitScreen
 import com.triangle.app.tasks.CreateEditTaskScreen
@@ -63,6 +76,7 @@ import com.triangle.app.settings.SettingsScreen
 
 private const val ROUTE_LOGIN = "login"
 private const val ROUTE_SIGNUP = "signup"
+private const val ROUTE_USERNAME_SETUP = "usernameSetup"
 private const val ROUTE_DASHBOARD = "dashboard"
 private const val ROUTE_PROFILE = "profile"
 private const val ROUTE_NOTIFICATIONS = "notifications"
@@ -74,43 +88,140 @@ private const val ROUTE_DM_GRAPH = "dmGraph"
 private const val ROUTE_DM_INBOX = "dmInbox"
 private const val ROUTE_DM_NEW_MESSAGE = "dmNewMessage"
 private const val ROUTE_DM_THREAD = "dmThread/{otherUserId}"
-private const val ROUTE_REWARDS_GRAPH = "rewardsGraph"
-private const val ROUTE_REWARDS_STORE = "rewardsStore"
-private const val ROUTE_REWARD_DETAIL = "rewardDetail/{rewardId}"
-private const val ROUTE_REWARDS_WALLET = "rewardsWallet"
-private const val ROUTE_REWARDS_HISTORY = "rewardsHistory"
-private const val ROUTE_REWARDS_MANAGE = "rewardsManage"
-private const val ROUTE_CREATE_REWARD = "createReward"
-private const val ROUTE_EDIT_REWARD = "editReward/{rewardId}"
-private const val ROUTE_REWARDS_SETTINGS = "rewardsSettings"
+private const val ROUTE_CIRCLE_GRAPH = "circleGraph"
+private const val ROUTE_CIRCLE = "circle"
+private const val ROUTE_CIRCLE_SEARCH = "circleSearch"
+private const val ROUTE_CONNECTION_REQUESTS = "connectionRequests"
+private const val ROUTE_CONNECT = "connect"
+private const val ROUTE_CONNECT_EMAIL = "connectEmail"
 private const val ROUTE_TASKS_GRAPH = "tasksGraph"
 private const val ROUTE_TASKS_LIST = "tasksList"
-private const val ROUTE_TASK_DETAIL = "taskDetail/{taskId}"
-private const val ROUTE_CREATE_TASK = "createTask"
+private const val ROUTE_TASK_DETAIL = "taskDetail/{taskId}?highlight={highlight}"
+private const val ROUTE_CREATE_TASK = "createTask/{isSolo}"
 private const val ROUTE_EDIT_TASK = "editTask/{taskId}"
-private const val ROUTE_HABIT_DETAIL = "habitDetail/{habitId}"
-private const val ROUTE_CREATE_HABIT = "createHabit"
+private const val ROUTE_HABIT_DETAIL = "habitDetail/{habitId}?highlight={highlight}"
+private const val ROUTE_CREATE_HABIT = "createHabit/{isSolo}"
 private const val ROUTE_EDIT_HABIT = "editHabit/{habitId}"
 private const val ROUTE_ADD_TASK_NOTE = "addTaskNote/{taskId}"
 private const val ROUTE_HABIT_ANALYTICS = "habitAnalytics/{habitId}"
 
 /**
- * Bottom-nav "switch tab" navigation, shared by the four top-level screens
- * that now show AppBottomNav (Dashboard, Tasks/Habits, Profile, Rewards
- * Store) — pops everything above Dashboard before pushing the new section,
+ * Bottom-nav "switch tab" navigation, shared by the three top-level screens
+ * that now show AppBottomNav (Dashboard, Tasks/Habits, Profile) — pops
+ * everything above Dashboard before pushing the new section,
  * so tapping between tabs never stacks screens indefinitely (back from any
  * of them goes straight to Dashboard, not back through every tab visited).
  */
+/**
+ * `saveState`/`restoreState` here (Navigation's own "multiple back stacks"
+ * mechanism, the same one BottomNavigationView samples use) is what makes
+ * switching tabs feel like switching TO an already-running tab instead of
+ * relaunching it: without it, popping back to Dashboard on every Home tap
+ * (see goHome() below) tore down the Tasks graph's NavBackStackEntry —
+ * and with it TasksHabitsViewModel, which had already fully loaded both
+ * the live own-tasks listener and the one-shot assigned-groups join — so
+ * returning to Tasks re-ran that whole load from zero every single time,
+ * not just the first. saveState on the pop keeps that entry (and its
+ * ViewModelStore) cached instead of destroyed; restoreState on the way
+ * back in reuses it rather than creating a fresh one.
+ */
 private fun switchTab(navController: NavController, route: String) {
     navController.navigate(route) {
-        popUpTo(ROUTE_DASHBOARD) { inclusive = false }
+        popUpTo(ROUTE_DASHBOARD) { inclusive = false; saveState = true }
         launchSingleTop = true
+        restoreState = true
     }
 }
 
-/** Home tap from within a tab — just pop back to the already-live Dashboard instance instead of recreating it. */
+/** Home tap from within a tab — pop back to the already-live Dashboard instance, saving the tab's own state so switchTab() can restore it later instead of recreating it. */
 private fun goHome(navController: NavController) {
-    navController.popBackStack(ROUTE_DASHBOARD, inclusive = false)
+    navController.popBackStack(ROUTE_DASHBOARD, inclusive = false, saveState = true)
+}
+
+// Same gold used for the "Reward" dot in ic_launcher_foreground.xml/splash_icon.xml.
+private val TriangleGoldDot = Color(0xFFF5B942)
+
+/** Guaranteed minimum time SplashGradientScreen stays on screen (see AppNavHost) —
+ * long enough for the dot-scatter animation below to fully settle plus a brief
+ * hold, short enough not to feel sluggish on a fast session-restore. */
+private const val MIN_SPLASH_MILLIS = 1900L
+
+/**
+ * Shown while SessionStore's first value is still loading (see AppNavHost
+ * below) — the same orange-to-purple diagonal gradient and triangle mark as
+ * the launcher icon (ic_launcher_background/foreground), since the system
+ * splash screen API can only ever paint a flat color (windowSplashScreenBackground
+ * is typed as a @color, not a drawable) and can't reproduce the gradient
+ * itself; this takes over the instant that flat-color frame is gone and
+ * covers the actual loading wait instead.
+ */
+@Composable
+private fun SplashGradientScreen() {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Brush.linearGradient(listOf(TriangleOrange, TriangleBrandPurple))),
+        contentAlignment = Alignment.Center
+    ) {
+        SplashLogo(modifier = Modifier.size(360.dp))
+    }
+}
+
+/**
+ * Redraws the same rounded-triangle mark as ic_launcher_foreground.xml, but
+ * the three pillar dots (Tasks/Habits/Reward) enter animated: they start
+ * merged into one point at the triangle's own center — drawn
+ * orange-then-gold-then-purple so the merged blob reads as purple, since
+ * purple lands on top — then scatter outward into their resting corners
+ * inside the triangle, one smooth ease
+ * with no overshoot (a bouncy spring here visibly overshoots past the rest
+ * positions and swings back toward merged before resettling — confirmed via
+ * a frame-by-frame screen recording, not just a hunch — which reads as a
+ * glitch rather than a deliberate effect for a one-shot entrance).
+ */
+@Composable
+private fun SplashLogo(modifier: Modifier = Modifier) {
+    val scatter = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        scatter.animateTo(
+            targetValue = 1f,
+            animationSpec = tween(durationMillis = 900, easing = FastOutSlowInEasing)
+        )
+    }
+    Canvas(modifier = modifier) {
+        val s = size.width / 108f
+
+        // Same rounded-triangle path as ic_launcher_foreground.xml's 108-unit viewport.
+        val trianglePath = Path().apply {
+            moveTo(49f * s, 32.66f * s)
+            lineTo(33.02f * s, 60.34f * s)
+            quadraticTo(28.02f * s, 69f * s, 38.02f * s, 69f * s)
+            lineTo(69.98f * s, 69f * s)
+            quadraticTo(79.98f * s, 69f * s, 74.98f * s, 60.34f * s)
+            lineTo(59f * s, 32.66f * s)
+            quadraticTo(54f * s, 24f * s, 49f * s, 32.66f * s)
+            close()
+        }
+        drawPath(trianglePath, color = Color.White)
+
+        // Same dot rest positions as ic_launcher_foreground.xml (scale 0.42 from centroid).
+        val orangeRest = Offset(54f * s, 41.4f * s)
+        val purpleRest = Offset(43.09f * s, 60.3f * s)
+        val goldRest = Offset(64.91f * s, 60.3f * s)
+        // Triangle's own centroid (same (54,54) center ic_launcher_foreground.xml's
+        // dot positions are all offset from) — not any one dot's own resting spot.
+        val mergedPoint = Offset(54f * s, 54f * s)
+        val dotRadius = 7f * s
+
+        fun lerp(rest: Offset) = Offset(
+            mergedPoint.x + (rest.x - mergedPoint.x) * scatter.value,
+            mergedPoint.y + (rest.y - mergedPoint.y) * scatter.value
+        )
+
+        drawCircle(TriangleOrange, dotRadius, lerp(orangeRest))
+        drawCircle(TriangleGoldDot, dotRadius, lerp(goldRest))
+        drawCircle(TriangleBrandPurple, dotRadius, lerp(purpleRest))
+    }
 }
 
 /**
@@ -127,6 +238,12 @@ fun AppNavHost(activity: MainActivity) {
 
     var session by remember { mutableStateOf<SessionStore.Session?>(null) }
     var sessionLoaded by remember { mutableStateOf(false) }
+    var minSplashElapsed by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        delay(MIN_SPLASH_MILLIS)
+        minSplashElapsed = true
+    }
 
     LaunchedEffect(Unit) {
         SessionStore.sessionFlow(context).collect { restored ->
@@ -153,16 +270,25 @@ fun AppNavHost(activity: MainActivity) {
         onDispose { activity.onNativeBackPressed = null }
     }
 
-    if (!sessionLoaded) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+    if (!sessionLoaded || !minSplashElapsed) {
+        SplashGradientScreen()
         return
     }
 
-    val startDestination = if (session == null) ROUTE_LOGIN else ROUTE_DASHBOARD
+    val startDestination = when {
+        session == null -> ROUTE_LOGIN
+        session?.username.isNullOrBlank() -> ROUTE_USERNAME_SETUP
+        else -> ROUTE_DASHBOARD
+    }
 
+    // Usernames are mandatory (Connect->Assign->Complete->Earn needs them to
+    // find/connect people) — route through setup first instead of straight
+    // to Dashboard whenever the freshly-logged-in session doesn't have one
+    // yet (new signups, and pre-this-feature accounts on their next login).
     fun handleLoggedIn(newSession: SessionStore.Session) {
         session = newSession
-        navController.navigate(ROUTE_DASHBOARD) { popUpTo(0) }
+        val target = if (newSession.username.isNullOrBlank()) ROUTE_USERNAME_SETUP else ROUTE_DASHBOARD
+        navController.navigate(target) { popUpTo(0) }
     }
 
     NavHost(navController = navController, startDestination = startDestination) {
@@ -177,6 +303,24 @@ fun AppNavHost(activity: MainActivity) {
                 onLoggedIn = ::handleLoggedIn,
                 onGoToLogin = { navController.popBackStack() }
             )
+        }
+        composable(ROUTE_USERNAME_SETUP) {
+            val currentSession = session
+            if (currentSession == null) {
+                LaunchedEffect(Unit) { navController.navigate(ROUTE_LOGIN) { popUpTo(0) } }
+            } else {
+                UsernameSetupScreen(
+                    session = currentSession,
+                    onUsernameSet = { updated ->
+                        session = updated
+                        navController.navigate(ROUTE_DASHBOARD) { popUpTo(0) }
+                    },
+                    onSignedOut = {
+                        session = null
+                        navController.navigate(ROUTE_LOGIN) { popUpTo(0) }
+                    }
+                )
+            }
         }
         composable(ROUTE_DASHBOARD) {
             val currentSession = session
@@ -199,11 +343,11 @@ fun AppNavHost(activity: MainActivity) {
                     session = currentSession,
                     onOpenTasks = { switchTab(navController, ROUTE_TASKS_GRAPH) },
                     onOpenProfile = { switchTab(navController, ROUTE_PROFILE) },
-                    onOpenRewards = { switchTab(navController, ROUTE_REWARDS_GRAPH) },
                     onOpenNotifications = { navController.navigate(ROUTE_NOTIFICATIONS) },
                     onOpenDm = { navController.navigate(ROUTE_DM_GRAPH) },
                     onOpenSettings = { navController.navigate(ROUTE_SETTINGS) },
-                    onOpenLeaderboard = { navController.navigate(ROUTE_LEADERBOARD) }
+                    onOpenLeaderboard = { navController.navigate(ROUTE_LEADERBOARD) },
+                    onOpenCircle = { navController.navigate(ROUTE_CIRCLE_GRAPH) }
                 )
             }
         }
@@ -219,10 +363,8 @@ fun AppNavHost(activity: MainActivity) {
             } else {
                 ProfileScreen(
                     session = currentSession,
-                    onBack = { navController.popBackStack() },
                     onOpenHome = { goHome(navController) },
-                    onOpenTasks = { switchTab(navController, ROUTE_TASKS_GRAPH) },
-                    onOpenRewards = { switchTab(navController, ROUTE_REWARDS_GRAPH) }
+                    onOpenTasks = { switchTab(navController, ROUTE_TASKS_GRAPH) }
                 )
             }
         }
@@ -241,7 +383,10 @@ fun AppNavHost(activity: MainActivity) {
                 NotificationsScreen(
                     viewModel = notifViewModel,
                     onOpenDmThread = { otherUserId -> navController.navigate("dmThread/$otherUserId") },
+                    onOpenTaskDetail = { taskId -> navController.navigate("taskDetail/$taskId?highlight=true") },
+                    onOpenHabitDetail = { habitId -> navController.navigate("habitDetail/$habitId?highlight=true") },
                     onOpenTasks = { navController.navigate(ROUTE_TASKS_GRAPH) },
+                    onOpenCircle = { navController.navigate(ROUTE_CIRCLE_GRAPH) },
                     onBack = { navController.popBackStack() }
                 )
             }
@@ -253,7 +398,10 @@ fun AppNavHost(activity: MainActivity) {
         // FirebaseAuth.signOut()); this route just handles the resulting
         // navigation back to a clean login stack.
         composable(ROUTE_SETTINGS) {
+            val currentSession = session ?: return@composable
             SettingsScreen(
+                session = currentSession,
+                onSessionUpdated = { updated -> session = updated },
                 onOpenNotifications = { navController.navigate(ROUTE_NOTIFICATIONS) },
                 onOpenChangePassword = { navController.navigate(ROUTE_CHANGE_PASSWORD) },
                 onOpenBackupRestore = { navController.navigate(ROUTE_BACKUP_RESTORE) },
@@ -297,14 +445,40 @@ fun AppNavHost(activity: MainActivity) {
                 val leaderboardViewModel: LeaderboardViewModel = viewModel(
                     factory = viewModelFactory { initializer { LeaderboardViewModel(currentSession) } }
                 )
-                LeaderboardScreen(viewModel = leaderboardViewModel, onBack = { navController.popBackStack() })
+                LeaderboardScreen(
+                    viewModel = leaderboardViewModel,
+                    onBack = { navController.popBackStack() },
+                    onOpenProfile = { uid, orgId -> navController.navigate("profileView/$uid/$orgId") }
+                )
             }
+        }
+
+        // ── Public profile peek (Leaderboard tap-through) — read-only
+        // Overview/Analytics/Achievement view of someone else's profile, see
+        // ProfileViewModel's uid/orgId constructor and PublicProfileScreen.
+        composable(
+            "profileView/{uid}/{orgId}",
+            arguments = listOf(
+                navArgument("uid") { type = NavType.StringType },
+                navArgument("orgId") { type = NavType.StringType }
+            )
+        ) { backStackEntry ->
+            val uid = backStackEntry.arguments?.getString("uid") ?: return@composable
+            val orgId = backStackEntry.arguments?.getString("orgId") ?: return@composable
+            PublicProfileScreen(
+                uid = uid,
+                orgId = orgId,
+                name = "",
+                username = null,
+                photoUrl = null,
+                onBack = { navController.popBackStack() }
+            )
         }
 
         // ── DM (Milestone 5) — one DmViewModel shared across every screen in
         // this nested graph (inbox/new-message/thread), scoped to the
-        // graph's own NavBackStackEntry, same pattern as Tasks/Rewards.
-        // dmThread is ALSO reachable directly from outside this graph (a
+        // graph's own NavBackStackEntry, same pattern as the Tasks graph
+        // below. dmThread is ALSO reachable directly from outside this graph (a
         // Notifications tap navigates straight to "dmThread/{otherUserId}"
         // without first visiting the inbox) — NavController resolves it the
         // same way either way since it's a normal (non-nested) route string.
@@ -361,120 +535,61 @@ fun AppNavHost(activity: MainActivity) {
             }
         }
 
-        // ── Rewards (Milestone 4) — one RewardsViewModel shared across every
-        // screen in this nested graph (store/detail/wallet/history/manage/
-        // create/edit/settings), scoped to the graph's own NavBackStackEntry,
-        // same pattern as the Tasks graph below.
-        navigation(startDestination = ROUTE_REWARDS_STORE, route = ROUTE_REWARDS_GRAPH) {
-            composable(ROUTE_REWARDS_STORE) { backStackEntry ->
+        // ── Circle & Connections — one CircleViewModel shared across every
+        // screen in this nested graph (list/search/requests), scoped to the
+        // graph's own NavBackStackEntry, same pattern as the DM graph above.
+        // Part of the Connect->Assign->Complete->Earn model — see
+        // .claude/plans/enchanted-brewing-beacon.md. ROUTE_CONNECTION_REQUESTS
+        // is ALSO reachable directly from outside this graph (a Notifications
+        // tap on a connection_request navigates straight there), same as
+        // ROUTE_DM_THREAD above.
+        navigation(startDestination = ROUTE_CIRCLE, route = ROUTE_CIRCLE_GRAPH) {
+            composable(ROUTE_CIRCLE) { backStackEntry ->
                 val currentSession = session ?: return@composable
-                val graphEntry = remember(backStackEntry) { navController.getBackStackEntry(ROUTE_REWARDS_GRAPH) }
-                val rewardsViewModel: RewardsViewModel = viewModel(
+                val graphEntry = remember(backStackEntry) { navController.getBackStackEntry(ROUTE_CIRCLE_GRAPH) }
+                val circleViewModel: CircleViewModel = viewModel(
                     graphEntry,
-                    factory = viewModelFactory { initializer { RewardsViewModel(currentSession) } }
+                    factory = viewModelFactory { initializer { CircleViewModel(currentSession) } }
                 )
-                RewardStoreScreen(
-                    viewModel = rewardsViewModel,
-                    onOpenDetail = { id -> navController.navigate("rewardDetail/$id") },
-                    onOpenWallet = { navController.navigate(ROUTE_REWARDS_WALLET) },
-                    onOpenHistory = { navController.navigate(ROUTE_REWARDS_HISTORY) },
-                    onOpenManage = { navController.navigate(ROUTE_REWARDS_MANAGE) },
-                    onOpenSettings = { navController.navigate(ROUTE_REWARDS_SETTINGS) },
-                    onOpenHome = { goHome(navController) },
-                    onOpenTasks = { switchTab(navController, ROUTE_TASKS_GRAPH) },
-                    onOpenProfile = { switchTab(navController, ROUTE_PROFILE) }
-                )
-            }
-            composable(ROUTE_REWARD_DETAIL, arguments = listOf(navArgument("rewardId") { type = NavType.StringType })) { backStackEntry ->
-                val currentSession = session ?: return@composable
-                val graphEntry = remember(backStackEntry) { navController.getBackStackEntry(ROUTE_REWARDS_GRAPH) }
-                val rewardsViewModel: RewardsViewModel = viewModel(
-                    graphEntry,
-                    factory = viewModelFactory { initializer { RewardsViewModel(currentSession) } }
-                )
-                val rewardId = backStackEntry.arguments?.getString("rewardId")
-                val reward = rewardsViewModel.rewardById(rewardId ?: "")
-                if (reward == null) {
-                    LaunchedEffect(Unit) { navController.popBackStack() }
-                } else {
-                    RewardDetailScreen(
-                        viewModel = rewardsViewModel,
-                        reward = reward,
-                        onRedeemed = { navController.popBackStack() },
-                        onBack = { navController.popBackStack() }
-                    )
-                }
-            }
-            composable(ROUTE_REWARDS_WALLET) { backStackEntry ->
-                val currentSession = session ?: return@composable
-                val graphEntry = remember(backStackEntry) { navController.getBackStackEntry(ROUTE_REWARDS_GRAPH) }
-                val rewardsViewModel: RewardsViewModel = viewModel(
-                    graphEntry,
-                    factory = viewModelFactory { initializer { RewardsViewModel(currentSession) } }
-                )
-                RewardWalletScreen(viewModel = rewardsViewModel, onBack = { navController.popBackStack() })
-            }
-            composable(ROUTE_REWARDS_HISTORY) { backStackEntry ->
-                val currentSession = session ?: return@composable
-                val graphEntry = remember(backStackEntry) { navController.getBackStackEntry(ROUTE_REWARDS_GRAPH) }
-                val rewardsViewModel: RewardsViewModel = viewModel(
-                    graphEntry,
-                    factory = viewModelFactory { initializer { RewardsViewModel(currentSession) } }
-                )
-                RewardHistoryScreen(viewModel = rewardsViewModel, onBack = { navController.popBackStack() })
-            }
-            composable(ROUTE_REWARDS_MANAGE) { backStackEntry ->
-                val currentSession = session ?: return@composable
-                val graphEntry = remember(backStackEntry) { navController.getBackStackEntry(ROUTE_REWARDS_GRAPH) }
-                val rewardsViewModel: RewardsViewModel = viewModel(
-                    graphEntry,
-                    factory = viewModelFactory { initializer { RewardsViewModel(currentSession) } }
-                )
-                ManageRewardsScreen(
-                    viewModel = rewardsViewModel,
-                    onCreate = { navController.navigate(ROUTE_CREATE_REWARD) },
-                    onEdit = { id -> navController.navigate("editReward/$id") },
+                CircleScreen(
+                    viewModel = circleViewModel,
+                    onOpenConnect = { navController.navigate(ROUTE_CONNECT) },
                     onBack = { navController.popBackStack() }
                 )
             }
-            composable(ROUTE_CREATE_REWARD) { backStackEntry ->
-                val currentSession = session ?: return@composable
-                val graphEntry = remember(backStackEntry) { navController.getBackStackEntry(ROUTE_REWARDS_GRAPH) }
-                val rewardsViewModel: RewardsViewModel = viewModel(
-                    graphEntry,
-                    factory = viewModelFactory { initializer { RewardsViewModel(currentSession) } }
-                )
-                CreateEditRewardScreen(
-                    viewModel = rewardsViewModel,
-                    existingReward = null,
-                    onSaved = { navController.popBackStack() },
+            composable(ROUTE_CONNECT) {
+                ConnectScreen(
+                    onOpenEmail = { navController.navigate(ROUTE_CONNECT_EMAIL) },
+                    onOpenUsername = { navController.navigate(ROUTE_CIRCLE_SEARCH) },
                     onBack = { navController.popBackStack() }
                 )
             }
-            composable(ROUTE_EDIT_REWARD, arguments = listOf(navArgument("rewardId") { type = NavType.StringType })) { backStackEntry ->
+            composable(ROUTE_CONNECT_EMAIL) { backStackEntry ->
+                val graphEntry = remember(backStackEntry) { navController.getBackStackEntry(ROUTE_CIRCLE_GRAPH) }
                 val currentSession = session ?: return@composable
-                val graphEntry = remember(backStackEntry) { navController.getBackStackEntry(ROUTE_REWARDS_GRAPH) }
-                val rewardsViewModel: RewardsViewModel = viewModel(
+                val circleViewModel: CircleViewModel = viewModel(
                     graphEntry,
-                    factory = viewModelFactory { initializer { RewardsViewModel(currentSession) } }
+                    factory = viewModelFactory { initializer { CircleViewModel(currentSession) } }
                 )
-                val rewardId = backStackEntry.arguments?.getString("rewardId")
-                val existingReward = rewardsViewModel.rewardById(rewardId ?: "")
-                CreateEditRewardScreen(
-                    viewModel = rewardsViewModel,
-                    existingReward = existingReward,
-                    onSaved = { navController.popBackStack(ROUTE_REWARDS_MANAGE, inclusive = false) },
-                    onBack = { navController.popBackStack() }
-                )
+                ConnectEmailScreen(viewModel = circleViewModel, onBack = { navController.popBackStack() })
             }
-            composable(ROUTE_REWARDS_SETTINGS) { backStackEntry ->
+            composable(ROUTE_CIRCLE_SEARCH) { backStackEntry ->
                 val currentSession = session ?: return@composable
-                val graphEntry = remember(backStackEntry) { navController.getBackStackEntry(ROUTE_REWARDS_GRAPH) }
-                val rewardsViewModel: RewardsViewModel = viewModel(
+                val graphEntry = remember(backStackEntry) { navController.getBackStackEntry(ROUTE_CIRCLE_GRAPH) }
+                val circleViewModel: CircleViewModel = viewModel(
                     graphEntry,
-                    factory = viewModelFactory { initializer { RewardsViewModel(currentSession) } }
+                    factory = viewModelFactory { initializer { CircleViewModel(currentSession) } }
                 )
-                RewardSettingsScreen(viewModel = rewardsViewModel, onBack = { navController.popBackStack() })
+                CircleSearchScreen(viewModel = circleViewModel, onBack = { navController.popBackStack() })
+            }
+            composable(ROUTE_CONNECTION_REQUESTS) { backStackEntry ->
+                val currentSession = session ?: return@composable
+                val graphEntry = remember(backStackEntry) { navController.getBackStackEntry(ROUTE_CIRCLE_GRAPH) }
+                val circleViewModel: CircleViewModel = viewModel(
+                    graphEntry,
+                    factory = viewModelFactory { initializer { CircleViewModel(currentSession) } }
+                )
+                ConnectionRequestsScreen(viewModel = circleViewModel, onBack = { navController.popBackStack() })
             }
         }
 
@@ -489,28 +604,34 @@ fun AppNavHost(activity: MainActivity) {
                 val graphEntry = remember(backStackEntry) { navController.getBackStackEntry(ROUTE_TASKS_GRAPH) }
                 val tasksViewModel: TasksHabitsViewModel = viewModel(
                     graphEntry,
-                    factory = viewModelFactory { initializer { TasksHabitsViewModel(currentSession) } }
+                    factory = viewModelFactory { initializer { TasksHabitsViewModel(currentSession, context.applicationContext) } }
                 )
                 TasksHabitsScreen(
                     viewModel = tasksViewModel,
                     onOpenTaskDetail = { id -> navController.navigate("taskDetail/$id") },
                     onOpenHabitDetail = { id -> navController.navigate("habitDetail/$id") },
                     onOpenHabitAnalytics = { id -> navController.navigate("habitAnalytics/$id") },
-                    onCreateTask = { navController.navigate(ROUTE_CREATE_TASK) },
-                    onCreateHabit = { navController.navigate(ROUTE_CREATE_HABIT) },
+                    onCreateTask = { isSolo -> navController.navigate("createTask/$isSolo") },
+                    onCreateHabit = { isSolo -> navController.navigate("createHabit/$isSolo") },
                     onOpenHome = { goHome(navController) },
-                    onOpenRewards = { switchTab(navController, ROUTE_REWARDS_GRAPH) },
                     onOpenProfile = { switchTab(navController, ROUTE_PROFILE) }
                 )
             }
-            composable(ROUTE_TASK_DETAIL, arguments = listOf(navArgument("taskId") { type = NavType.StringType })) { backStackEntry ->
+            composable(
+                ROUTE_TASK_DETAIL,
+                arguments = listOf(
+                    navArgument("taskId") { type = NavType.StringType },
+                    navArgument("highlight") { type = NavType.BoolType; defaultValue = false }
+                )
+            ) { backStackEntry ->
                 val currentSession = session ?: return@composable
                 val graphEntry = remember(backStackEntry) { navController.getBackStackEntry(ROUTE_TASKS_GRAPH) }
                 val tasksViewModel: TasksHabitsViewModel = viewModel(
                     graphEntry,
-                    factory = viewModelFactory { initializer { TasksHabitsViewModel(currentSession) } }
+                    factory = viewModelFactory { initializer { TasksHabitsViewModel(currentSession, context.applicationContext) } }
                 )
                 val taskId = backStackEntry.arguments?.getString("taskId")
+                val highlight = backStackEntry.arguments?.getBoolean("highlight") ?: false
                 val tasks by tasksViewModel.tasks.collectAsState()
                 val task = tasks.firstOrNull { it.id == taskId }
                 if (task == null) {
@@ -523,7 +644,8 @@ fun AppNavHost(activity: MainActivity) {
                         canEdit = task.isPersonal && task.createdBy == currentSession.uid,
                         onEdit = { navController.navigate("editTask/${task.id}") },
                         onAddNote = { navController.navigate("addTaskNote/${task.id}") },
-                        onBack = { navController.popBackStack() }
+                        onBack = { navController.popBackStack() },
+                        highlightOnOpen = highlight
                     )
                 }
             }
@@ -537,14 +659,23 @@ fun AppNavHost(activity: MainActivity) {
                     onBack = { navController.popBackStack() }
                 )
             }
-            composable(ROUTE_CREATE_TASK) {
+            composable(ROUTE_CREATE_TASK, arguments = listOf(navArgument("isSolo") { type = NavType.BoolType })) { backStackEntry ->
                 val currentSession = session ?: return@composable
+                val graphEntry = remember(backStackEntry) { navController.getBackStackEntry(ROUTE_TASKS_GRAPH) }
+                val tasksViewModel: TasksHabitsViewModel = viewModel(
+                    graphEntry,
+                    factory = viewModelFactory { initializer { TasksHabitsViewModel(currentSession, context.applicationContext) } }
+                )
+                val isSolo = backStackEntry.arguments?.getBoolean("isSolo") ?: false
                 CreateEditTaskScreen(
                     session = currentSession,
+                    viewModel = tasksViewModel,
                     existingTask = null,
+                    isSolo = isSolo,
                     onSaved = { navController.popBackStack() },
                     onDeleted = { navController.popBackStack() },
-                    onBack = { navController.popBackStack() }
+                    onBack = { navController.popBackStack() },
+                    onFindPeople = { navController.navigate(ROUTE_CIRCLE_SEARCH) }
                 )
             }
             composable(ROUTE_EDIT_TASK, arguments = listOf(navArgument("taskId") { type = NavType.StringType })) { backStackEntry ->
@@ -552,27 +683,35 @@ fun AppNavHost(activity: MainActivity) {
                 val graphEntry = remember(backStackEntry) { navController.getBackStackEntry(ROUTE_TASKS_GRAPH) }
                 val tasksViewModel: TasksHabitsViewModel = viewModel(
                     graphEntry,
-                    factory = viewModelFactory { initializer { TasksHabitsViewModel(currentSession) } }
+                    factory = viewModelFactory { initializer { TasksHabitsViewModel(currentSession, context.applicationContext) } }
                 )
                 val taskId = backStackEntry.arguments?.getString("taskId")
                 val tasks by tasksViewModel.tasks.collectAsState()
                 val task = tasks.firstOrNull { it.id == taskId }
                 CreateEditTaskScreen(
                     session = currentSession,
+                    viewModel = tasksViewModel,
                     existingTask = task,
                     onSaved = { navController.popBackStack() },
                     onDeleted = { navController.popBackStack(ROUTE_TASKS_LIST, inclusive = false) },
                     onBack = { navController.popBackStack() }
                 )
             }
-            composable(ROUTE_HABIT_DETAIL, arguments = listOf(navArgument("habitId") { type = NavType.StringType })) { backStackEntry ->
+            composable(
+                ROUTE_HABIT_DETAIL,
+                arguments = listOf(
+                    navArgument("habitId") { type = NavType.StringType },
+                    navArgument("highlight") { type = NavType.BoolType; defaultValue = false }
+                )
+            ) { backStackEntry ->
                 val currentSession = session ?: return@composable
                 val graphEntry = remember(backStackEntry) { navController.getBackStackEntry(ROUTE_TASKS_GRAPH) }
                 val tasksViewModel: TasksHabitsViewModel = viewModel(
                     graphEntry,
-                    factory = viewModelFactory { initializer { TasksHabitsViewModel(currentSession) } }
+                    factory = viewModelFactory { initializer { TasksHabitsViewModel(currentSession, context.applicationContext) } }
                 )
                 val habitId = backStackEntry.arguments?.getString("habitId")
+                val highlight = backStackEntry.arguments?.getBoolean("highlight") ?: false
                 val habits by tasksViewModel.habits.collectAsState()
                 val habit = habits.firstOrNull { it.id == habitId }
                 if (habit == null) {
@@ -582,9 +721,11 @@ fun AppNavHost(activity: MainActivity) {
                         session = currentSession,
                         viewModel = tasksViewModel,
                         habit = habit,
+                        canEdit = habit.createdBy == null || habit.createdBy == currentSession.uid,
                         onEdit = { navController.navigate("editHabit/${habit.id}") },
                         onOpenAnalytics = { navController.navigate("habitAnalytics/${habit.id}") },
-                        onBack = { navController.popBackStack() }
+                        onBack = { navController.popBackStack() },
+                        highlightOnOpen = highlight
                     )
                 }
             }
@@ -593,7 +734,7 @@ fun AppNavHost(activity: MainActivity) {
                 val graphEntry = remember(backStackEntry) { navController.getBackStackEntry(ROUTE_TASKS_GRAPH) }
                 val tasksViewModel: TasksHabitsViewModel = viewModel(
                     graphEntry,
-                    factory = viewModelFactory { initializer { TasksHabitsViewModel(currentSession) } }
+                    factory = viewModelFactory { initializer { TasksHabitsViewModel(currentSession, context.applicationContext) } }
                 )
                 val habitId = backStackEntry.arguments?.getString("habitId")
                 val habits by tasksViewModel.habits.collectAsState()
@@ -601,22 +742,31 @@ fun AppNavHost(activity: MainActivity) {
                 if (habit == null) {
                     LaunchedEffect(Unit) { navController.popBackStack() }
                 } else {
+                    val tasksState by tasksViewModel.uiState.collectAsState()
                     HabitAnalyticsScreen(
-                        session = currentSession,
-                        viewModel = tasksViewModel,
                         habit = habit,
+                        completions = tasksState.habitCompletions[habit.id] ?: emptyMap(),
                         onBack = { navController.popBackStack() }
                     )
                 }
             }
-            composable(ROUTE_CREATE_HABIT) {
+            composable(ROUTE_CREATE_HABIT, arguments = listOf(navArgument("isSolo") { type = NavType.BoolType })) { backStackEntry ->
                 val currentSession = session ?: return@composable
+                val graphEntry = remember(backStackEntry) { navController.getBackStackEntry(ROUTE_TASKS_GRAPH) }
+                val tasksViewModel: TasksHabitsViewModel = viewModel(
+                    graphEntry,
+                    factory = viewModelFactory { initializer { TasksHabitsViewModel(currentSession, context.applicationContext) } }
+                )
+                val isSolo = backStackEntry.arguments?.getBoolean("isSolo") ?: false
                 CreateEditHabitScreen(
                     session = currentSession,
+                    viewModel = tasksViewModel,
                     existingHabit = null,
+                    isSolo = isSolo,
                     onSaved = { navController.popBackStack() },
                     onDeleted = { navController.popBackStack() },
-                    onBack = { navController.popBackStack() }
+                    onBack = { navController.popBackStack() },
+                    onFindPeople = { navController.navigate(ROUTE_CIRCLE_SEARCH) }
                 )
             }
             composable(ROUTE_EDIT_HABIT, arguments = listOf(navArgument("habitId") { type = NavType.StringType })) { backStackEntry ->
@@ -624,13 +774,14 @@ fun AppNavHost(activity: MainActivity) {
                 val graphEntry = remember(backStackEntry) { navController.getBackStackEntry(ROUTE_TASKS_GRAPH) }
                 val tasksViewModel: TasksHabitsViewModel = viewModel(
                     graphEntry,
-                    factory = viewModelFactory { initializer { TasksHabitsViewModel(currentSession) } }
+                    factory = viewModelFactory { initializer { TasksHabitsViewModel(currentSession, context.applicationContext) } }
                 )
                 val habitId = backStackEntry.arguments?.getString("habitId")
                 val habits by tasksViewModel.habits.collectAsState()
                 val habit = habits.firstOrNull { it.id == habitId }
                 CreateEditHabitScreen(
                     session = currentSession,
+                    viewModel = tasksViewModel,
                     existingHabit = habit,
                     onSaved = { navController.popBackStack() },
                     onDeleted = { navController.popBackStack(ROUTE_TASKS_LIST, inclusive = false) },

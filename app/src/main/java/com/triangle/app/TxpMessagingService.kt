@@ -65,7 +65,7 @@ class TxpMessagingService : FirebaseMessagingService() {
                     "TraineeXP Notifications",
                     NotificationManager.IMPORTANCE_HIGH
                 ).apply {
-                    description = "Task, habit, reward, post, and message notifications"
+                    description = "Task, habit, post, and message notifications"
                 }
                 nm.createNotificationChannel(channel)
             }

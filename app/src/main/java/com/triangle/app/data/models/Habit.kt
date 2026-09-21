@@ -6,9 +6,10 @@ import com.triangle.app.data.anyToMapList
 /**
  * Native model of a `db.habits[]` entry — see script.js's habit-creation
  * flow (`_renderHabitCreatePanel`/`saveHabit`) and scheduling helpers
- * (`_habitIsScheduledForDate`, `_habitIsInRange`). For the Individual role
- * (this milestone's scope), `assignedTo` is always `[currentUser.id]` —
- * there's no "assign to" picker for Individual accounts in the source app.
+ * (`_habitIsScheduledForDate`, `_habitIsInRange`). `assignedTo` held only
+ * `[currentUser.id]` until the Connect->Assign->Complete->Earn model
+ * (Milestone 3, see .claude/plans/enchanted-brewing-beacon.md) activated
+ * real cross-account assignment via AssignmentRepository.
  */
 data class HabitFrequency(
     val type: String, // "everyday" | "daysOfWeek" | "daysOfMonth" | "perPeriod"
@@ -57,10 +58,13 @@ data class Habit(
     val description: String = "",
     val iconSvg: String? = null,
     val color: String = HabitPalette.DEFAULT_COLOR,
+    /** Only meaningful for a Solo (unassigned, self-created) habit — see TasksHabitsViewModel's ItemMode.SOLO filtering. Assigned-out habits ignore this. */
+    val category: String = "Personal", // "Office" | "Academic" | "Personal"
     val assignedTo: List<String> = emptyList(),
     val frequency: HabitFrequency = HabitFrequency("everyday"),
     val startDate: String,
     val endDate: String? = null,
+    val priority: String = "medium", // "low" | "medium" | "high" | "critical" — see data/PriorityXp.kt; xpPerCompletion is derived from this at assignment time, not freely entered
     val xpPerCompletion: Int = 5,
     val createdAt: Long = 0L,
     val createdBy: String? = null,
@@ -73,8 +77,9 @@ data class Habit(
 
     fun toMap(): Map<String, Any?> = mapOf(
         "id" to id, "name" to name, "description" to description, "iconSvg" to iconSvg, "color" to color,
+        "category" to category,
         "assignedTo" to assignedTo, "frequency" to frequency.toMap(), "startDate" to startDate, "endDate" to endDate,
-        "xpPerCompletion" to xpPerCompletion, "createdAt" to createdAt, "createdBy" to createdBy,
+        "priority" to priority, "xpPerCompletion" to xpPerCompletion, "createdAt" to createdAt, "createdBy" to createdBy,
         "photos" to photos.map { it.toMap() }
     )
 
@@ -88,11 +93,15 @@ data class Habit(
                 description = m["description"] as? String ?: "",
                 iconSvg = m["iconSvg"] as? String,
                 color = m["color"] as? String ?: HabitPalette.DEFAULT_COLOR,
+                category = m["category"] as? String ?: "Personal",
                 assignedTo = (m["assignedTo"] as? List<*>)?.map { it.toString() } ?: emptyList(),
                 frequency = (m["frequency"] as? Map<*, *>)?.let { HabitFrequency.fromMap(it) } ?: HabitFrequency("everyday"),
                 startDate = m["startDate"] as? String ?: "",
                 endDate = m["endDate"] as? String,
-                xpPerCompletion = ((m["xpPerCompletion"] as? Number)?.toInt() ?: 5).let { if (it > 0) it else 5 },
+                priority = m["priority"] as? String ?: "medium",
+                // A Solo habit's xpPerCompletion is a deliberate 0 (no XP) — only floor
+                // a MISSING value to 5, not an explicit 0, so that stays 0 on reload.
+                xpPerCompletion = (m["xpPerCompletion"] as? Number)?.toInt() ?: 5,
                 createdAt = (m["createdAt"] as? Number)?.toLong() ?: 0L,
                 createdBy = m["createdBy"]?.toString(),
                 photos = anyToMapList(m["photos"]).mapNotNull { TaskNote.fromMap(it) }

@@ -37,6 +37,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.triangle.app.data.models.DmThreadSummary
+import com.triangle.app.ui.components.Avatar
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -98,9 +99,7 @@ private fun ThreadRow(thread: DmThreadSummary, palette: DmPalette, onClick: () -
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(Modifier.size(46.dp).clip(CircleShape).background(DmColors.Accent.copy(alpha = 0.18f)), contentAlignment = Alignment.Center) {
-            Text((thread.otherUserName.firstOrNull() ?: '?').uppercase(), color = DmColors.Accent, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-        }
+        Avatar(thread.otherUserName, thread.otherUserPhotoUrl, size = 46.dp, backgroundColor = DmColors.Accent.copy(alpha = 0.18f), textColor = DmColors.Accent, fontSize = 17.sp)
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(thread.otherUserName.ifBlank { "..." }, fontSize = 14.5.sp, fontWeight = FontWeight.SemiBold, color = palette.text, maxLines = 1)

@@ -9,7 +9,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -44,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.triangle.app.data.SessionStore
 import com.triangle.app.data.models.DmMessage
+import com.triangle.app.ui.components.Avatar
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -69,9 +72,23 @@ fun DmThreadScreen(
     }
 
     Scaffold(
+        // The header lives in Scaffold's fixed topBar slot, never inside the
+        // scrollable content below — imePadding() here just reserves space
+        // for the keyboard within the CONTENT area (message list + input
+        // row) so the keyboard pushes those up without the OS's default
+        // whole-window pan (which would otherwise drag the header along
+        // with it, since this app runs edge-to-edge with no
+        // windowSoftInputMode declared to prevent that).
+        modifier = Modifier.imePadding(),
         topBar = {
             TopAppBar(
-                title = { Text(state.otherUserName.ifBlank { "..." }, fontWeight = FontWeight.Bold) },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Avatar(state.otherUserName, state.otherUserPhotoUrl, size = 32.dp, backgroundColor = DmColors.Accent.copy(alpha = 0.18f), textColor = DmColors.Accent, fontSize = 13.sp)
+                        Spacer(Modifier.width(10.dp))
+                        Text(state.otherUserName.ifBlank { "..." }, fontWeight = FontWeight.Bold)
+                    }
+                },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } },
                 actions = {
                     IconButton(onClick = { menuOpen = true }) {
