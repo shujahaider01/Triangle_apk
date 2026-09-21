@@ -173,8 +173,16 @@ private fun DashboardContent(
             IconButton(onClick = onOpenCircle) {
                 Icon(Icons.Default.People, contentDescription = "My Circle")
             }
-            IconButton(onClick = onOpenNotifications) {
-                Icon(Icons.Default.Notifications, contentDescription = "Notifications")
+            androidx.compose.material3.BadgedBox(badge = {
+                if (com.triangle.app.data.FeatureFlags.isEnabled(com.triangle.app.data.FeatureFlag.NOTIFICATION_BADGE_ENABLED) && state.unreadNotifCount > 0) {
+                    androidx.compose.material3.Badge {
+                        Text(if (state.unreadNotifCount > 9) "9+" else state.unreadNotifCount.toString())
+                    }
+                }
+            }) {
+                IconButton(onClick = onOpenNotifications) {
+                    Icon(Icons.Default.Notifications, contentDescription = "Notifications")
+                }
             }
             if (com.triangle.app.data.FeatureFlags.isEnabled(com.triangle.app.data.FeatureFlag.DM_ENABLED)) {
                 IconButton(onClick = onOpenDm) {
