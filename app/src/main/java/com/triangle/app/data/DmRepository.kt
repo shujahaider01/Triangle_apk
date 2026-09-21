@@ -25,7 +25,7 @@ import kotlinx.coroutines.tasks.await
  */
 object DmRepository {
     private fun dmData() =
-        FirebaseDatabase.getInstance(TriangleConfig.FIREBASE_URL).getReference("dmData/orgs/${TriangleConfig.DM_ORG_ID}")
+        FirebaseDatabase.getInstance().getReference("dmData/orgs/${TriangleConfig.DM_ORG_ID}")
 
     sealed class SendResult {
         object Success : SendResult()

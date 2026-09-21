@@ -20,7 +20,7 @@ import kotlinx.coroutines.tasks.await
  * per-org schema.
  */
 object OrgDataRepository {
-    private val db get() = FirebaseDatabase.getInstance(TriangleConfig.FIREBASE_URL)
+    private val db get() = FirebaseDatabase.getInstance()
 
     data class DashboardSnapshot(
         val tasks: List<Map<String, Any?>>,

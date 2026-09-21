@@ -19,7 +19,7 @@ import java.time.LocalDate
  */
 object TaskRepository {
     private fun orgData(orgId: String) =
-        FirebaseDatabase.getInstance(TriangleConfig.FIREBASE_URL).getReference("organizations/$orgId/data")
+        FirebaseDatabase.getInstance().getReference("organizations/$orgId/data")
 
     fun tasksFlow(orgId: String): Flow<List<Task>> =
         orgData(orgId).child("tasks").valueFlow().map { snap ->

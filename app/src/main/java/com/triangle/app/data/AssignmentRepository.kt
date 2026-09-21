@@ -34,7 +34,7 @@ import kotlinx.coroutines.tasks.await
  * join them back into one row with a per-recipient completion breakdown.
  */
 object AssignmentRepository {
-    private fun db() = FirebaseDatabase.getInstance(TriangleConfig.FIREBASE_URL)
+    private fun db() = FirebaseDatabase.getInstance()
     private fun orgData(orgId: String) = db().getReference("organizations/$orgId/data")
     private fun social() = db().getReference(TriangleConfig.SOCIAL_ROOT)
 

@@ -11,7 +11,7 @@ import kotlinx.coroutines.tasks.await
  * people are in two different, mutually-invisible per-account orgs.
  */
 object EmailInviteRepository {
-    private fun social() = FirebaseDatabase.getInstance(TriangleConfig.FIREBASE_URL).getReference(TriangleConfig.SOCIAL_ROOT)
+    private fun social() = FirebaseDatabase.getInstance().getReference(TriangleConfig.SOCIAL_ROOT)
 
     sealed class InviteResult {
         object SentToExistingUser : InviteResult()

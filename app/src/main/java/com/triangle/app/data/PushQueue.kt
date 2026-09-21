@@ -13,7 +13,7 @@ import kotlinx.coroutines.tasks.await
  * shape to the same place.
  */
 object PushQueue {
-    private val db get() = FirebaseDatabase.getInstance(TriangleConfig.FIREBASE_URL)
+    private val db get() = FirebaseDatabase.getInstance()
 
     suspend fun enqueue(targetType: String, targetId: String, notifId: String, type: String, title: String, body: String) {
         db.getReference("pushQueue").push().setValue(

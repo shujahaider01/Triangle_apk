@@ -19,7 +19,7 @@ import kotlinx.coroutines.tasks.await
  * this project already accepted for Milestone 5's global DM user search.
  */
 object LeaderboardRepository {
-    private val db get() = FirebaseDatabase.getInstance(TriangleConfig.FIREBASE_URL)
+    private val db get() = FirebaseDatabase.getInstance()
 
     data class LeaderboardEntry(val uid: String, val orgId: String, val name: String, val points: Int, val photoUrl: String? = null)
 

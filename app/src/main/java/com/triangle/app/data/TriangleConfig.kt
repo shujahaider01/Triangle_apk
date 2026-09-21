@@ -14,7 +14,6 @@ import com.triangle.app.BuildConfig
  * shipped them this way.
  */
 object TriangleConfig {
-    const val FIREBASE_URL = "https://triangle-apk-default-rtdb.firebaseio.com"
     const val FIREBASE_WEB_API_KEY = "AIzaSyBvZeKsYjS-Y9qgHhQxRddsU7qUZmgYoro"
 
     // EmailJS — same account/service/template as script.js's OTP email step

@@ -20,7 +20,7 @@ import kotlinx.coroutines.tasks.await
  */
 object HabitRepository {
     private fun orgData(orgId: String) =
-        FirebaseDatabase.getInstance(TriangleConfig.FIREBASE_URL).getReference("organizations/$orgId/data")
+        FirebaseDatabase.getInstance().getReference("organizations/$orgId/data")
 
     fun habitsFlow(orgId: String): Flow<List<Habit>> =
         orgData(orgId).child("habits").valueFlow().map { snap ->

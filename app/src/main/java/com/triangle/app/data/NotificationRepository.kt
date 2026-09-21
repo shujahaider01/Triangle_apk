@@ -16,7 +16,7 @@ import kotlinx.coroutines.tasks.await
  * user's own list.
  */
 object NotificationRepository {
-    private val db get() = FirebaseDatabase.getInstance(TriangleConfig.FIREBASE_URL)
+    private val db get() = FirebaseDatabase.getInstance()
     private const val NOTIF_MAX_PER_INBOX = 200
 
     private fun notifRef(orgId: String, uid: String) =

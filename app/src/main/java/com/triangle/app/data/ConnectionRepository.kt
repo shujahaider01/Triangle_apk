@@ -15,7 +15,7 @@ import kotlinx.coroutines.tasks.await
  * in either one.
  */
 object ConnectionRepository {
-    private fun social() = FirebaseDatabase.getInstance(TriangleConfig.FIREBASE_URL).getReference(TriangleConfig.SOCIAL_ROOT)
+    private fun social() = FirebaseDatabase.getInstance().getReference(TriangleConfig.SOCIAL_ROOT)
 
     /** uids of everyone the given uid is connected with — their Circle. */
     fun circleFlow(uid: String): Flow<List<String>> =
