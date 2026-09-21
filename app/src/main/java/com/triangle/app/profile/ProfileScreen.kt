@@ -209,7 +209,7 @@ private fun ProfileScreenContent(
                 pickedRawBitmap = null
             },
             onCancel = { pickedRawBitmap = null },
-            squareByDefault = true
+            circularFrame = true
         )
     }
     }
