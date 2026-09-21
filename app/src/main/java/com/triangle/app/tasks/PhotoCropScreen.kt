@@ -129,15 +129,16 @@ fun PhotoCropView(
             val effectiveScale = baseScale * scale
 
             // How far scale is allowed to go below 1 (frame-cover) — down to
-            // wherever the WHOLE image fits inside the viewport (min, not
-            // max, of the two axis ratios — "fit" rather than "cover").
-            // Below frame-cover the image no longer fills the frame on its
-            // own, but that's fine: cropBitmap() already clamps its crop
-            // rect to the bitmap's real bounds, so zooming out this far just
-            // means "crop everything available" rather than corrupting or
-            // crashing — letting people actually see the whole photo while
-            // deciding where to crop is worth that tradeoff.
-            val minScale = min(viewportW / bmpW, viewportH / bmpH) / baseScale
+            // HALF of wherever the whole image fits inside the viewport
+            // (min, not max, of the two axis ratios — "fit" rather than
+            // "cover" — then halved again for extra headroom beyond even
+            // that). Below frame-cover the image no longer fills the frame
+            // on its own, but that's fine: cropBitmap() already clamps its
+            // crop rect to the bitmap's real bounds, so zooming out this far
+            // just means "crop everything available" rather than corrupting
+            // or crashing — letting people zoom out well past the image's
+            // own edges while deciding where to crop is worth that tradeoff.
+            val minScale = (min(viewportW / bmpW, viewportH / bmpH) / baseScale) * 0.5f
 
             // Bitmap pixel (px,py) is drawn (before transform) at local Image
             // position (px,py) — ContentScale.None means 1:1, top-left
@@ -166,9 +167,18 @@ fun PhotoCropView(
                 modifier = Modifier
                     .fillMaxSize()
                     .pointerInput(Unit) {
-                        detectTransformGestures { _, pan, zoom, _ ->
-                            scale = (scale * zoom).coerceIn(minScale, 5f)
-                            offset += pan
+                        detectTransformGestures { centroid, pan, zoom, _ ->
+                            val newScale = (scale * zoom).coerceIn(minScale, 5f)
+                            // Anchor the zoom to the pinch centroid instead
+                            // of the image's own center — without this, the
+                            // point under your fingers doesn't stay under
+                            // your fingers as scale changes, which reads as
+                            // the picture suddenly jumping/snapping instead
+                            // of zooming smoothly in place.
+                            val actualZoom = newScale / scale
+                            val centroidFromCenter = centroid - Offset(viewportW / 2f, viewportH / 2f)
+                            offset = (offset - centroidFromCenter) * actualZoom + centroidFromCenter + pan
+                            scale = newScale
                         }
                     }
                     .graphicsLayer {
