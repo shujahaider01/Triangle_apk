@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -5,6 +7,18 @@ plugins {
     alias(libs.plugins.baselineprofile)
     id("com.google.gms.google-services")
 }
+
+// EmailJS credentials — kept out of source (see TriangleConfig.kt) since
+// EMAILJS_PRIVATE_KEY is a real secret. Read from the gitignored
+// local.properties (same file Android Studio already generates for
+// sdk.dir), not committed. Each developer/CI environment sets its own copy.
+val localProperties = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) {
+        file.inputStream().use { load(it) }
+    }
+}
+fun localProp(key: String): String = localProperties.getProperty(key, "")
 
 android {
     namespace = "com.triangle.app"
@@ -25,6 +39,12 @@ android {
         // Firebase Console > Authentication > Sign-in method > Google for
         // the real "Web client" OAuth ID once that project is created.
         buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"859625465910-5fu54tsk2ifgn1fhcheaai44skgm2ieq.apps.googleusercontent.com\"")
+
+        buildConfigField("String", "EMAILJS_SERVICE_ID", "\"${localProp("emailjs.serviceId")}\"")
+        buildConfigField("String", "EMAILJS_TEMPLATE_ID", "\"${localProp("emailjs.templateId")}\"")
+        buildConfigField("String", "EMAILJS_INVITE_TEMPLATE_ID", "\"${localProp("emailjs.inviteTemplateId")}\"")
+        buildConfigField("String", "EMAILJS_PUBLIC_KEY", "\"${localProp("emailjs.publicKey")}\"")
+        buildConfigField("String", "EMAILJS_PRIVATE_KEY", "\"${localProp("emailjs.privateKey")}\"")
     }
     buildTypes {
         release {

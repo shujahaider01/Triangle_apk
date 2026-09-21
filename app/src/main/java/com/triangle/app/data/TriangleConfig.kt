@@ -1,5 +1,7 @@
 package com.triangle.app.data
 
+import com.triangle.app.BuildConfig
+
 /**
  * Same Firebase/EmailJS constants script.js already hardcodes (see
  * assets/config.js and the "AUTH & ORGANIZATION ONBOARDING" section of
@@ -17,15 +19,18 @@ object TriangleConfig {
 
     // EmailJS — same account/service/template as script.js's OTP email step
     // (EMAILJS_SERVICE_ID/EMAILJS_TEMPLATE_ID/EMAILJS_PUBLIC_KEY/EMAILJS_PRIVATE_KEY).
-    const val EMAILJS_SERVICE_ID = "service_dm5qnqj"
-    const val EMAILJS_TEMPLATE_ID = "template_e1azwbs"
-    const val EMAILJS_PUBLIC_KEY = "bRNGLcTaJW2tTsFC1"
-    const val EMAILJS_PRIVATE_KEY = "20c9Z-zyjYmWJRMPaoTQw"
+    // Values come from local.properties (gitignored) via BuildConfig, not
+    // hardcoded here — EMAILJS_PRIVATE_KEY is a real secret. See
+    // app/build.gradle.kts.
+    val EMAILJS_SERVICE_ID: String get() = BuildConfig.EMAILJS_SERVICE_ID
+    val EMAILJS_TEMPLATE_ID: String get() = BuildConfig.EMAILJS_TEMPLATE_ID
+    val EMAILJS_PUBLIC_KEY: String get() = BuildConfig.EMAILJS_PUBLIC_KEY
+    val EMAILJS_PRIVATE_KEY: String get() = BuildConfig.EMAILJS_PRIVATE_KEY
 
     // Invite email template (see emailjs-invite-template.html at the repo
     // root). Template params sent by EmailJsClient.sendInviteEmail():
     // to_email, inviter_name, app_name.
-    const val EMAILJS_INVITE_TEMPLATE_ID = "template_lzxf5wq"
+    val EMAILJS_INVITE_TEMPLATE_ID: String get() = BuildConfig.EMAILJS_INVITE_TEMPLATE_ID
 
     // Fixed shared namespace for DM data — script.js's DM_ORG_ID is the
     // literal constant 'org1' from config.js, NOT the signed-in user's own
