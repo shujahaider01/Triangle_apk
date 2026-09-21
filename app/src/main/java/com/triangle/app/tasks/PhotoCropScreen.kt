@@ -135,6 +135,15 @@ fun PhotoCropView(
                 bitmap = sourceBitmap.asImageBitmap(),
                 contentDescription = null,
                 contentScale = ContentScale.None,
+                // Alignment.TopStart is load-bearing, not cosmetic — Image's
+                // default alignment (Center) would internally center the
+                // natural-size bitmap within this fillMaxSize() box BEFORE
+                // the graphicsLayer transform below runs, silently
+                // introducing a (viewportW-bmpW)/2, (viewportH-bmpH)/2
+                // offset that imgTranslationX/Y and cropBitmap()'s inverse
+                // math don't account for — exactly the "correct at default
+                // position, wrong once panned/zoomed" symptom this caused.
+                alignment = Alignment.TopStart,
                 modifier = Modifier
                     .fillMaxSize()
                     .pointerInput(Unit) {
