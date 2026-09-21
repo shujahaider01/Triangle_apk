@@ -47,8 +47,8 @@ enum class FeatureFlag(
         description = "Unread-count badge on the Dashboard's notification bell icon",
         owner = "Product",
         createdDate = "2026-09-22",
-        status = FlagStatus.TESTING,
-        devDefault = true, qaDefault = true, prodDefault = false,
+        status = FlagStatus.APPROVED_FOR_RELEASE,
+        devDefault = true, qaDefault = true, prodDefault = true,
     )
     ;
 
