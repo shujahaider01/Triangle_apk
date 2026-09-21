@@ -36,13 +36,25 @@ const DEAD_TOKEN_CODES = new Set([
   'messaging/registration-token-not-registered',
 ]);
 
+// Accepts the service-account JSON either raw or base64-encoded — base64 is
+// the recommended way to populate the GitHub secret since it's a single line
+// of safe characters, immune to a web textarea mangling the private key's
+// embedded newlines (the exact failure mode that raw JSON kept hitting here).
+function parseServiceAccountJson(raw) {
+  const tryParse = (s) => { try { return JSON.parse(s); } catch { return null; } };
+  return tryParse(raw) ?? tryParse(Buffer.from(raw, 'base64').toString('utf8'));
+}
+
 function initFirebase() {
   const databaseURL = process.env.FIREBASE_DB_URL;
   if (!databaseURL) throw new Error('FIREBASE_DB_URL env var is required');
 
-  const credential = process.env.FIREBASE_SERVICE_ACCOUNT_JSON
-    ? admin.credential.cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON))
-    : admin.credential.applicationDefault();
+  let credential = admin.credential.applicationDefault();
+  if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+    const parsed = parseServiceAccountJson(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
+    if (!parsed) throw new Error('FIREBASE_SERVICE_ACCOUNT_JSON is neither valid JSON nor valid base64-encoded JSON');
+    credential = admin.credential.cert(parsed);
+  }
 
   admin.initializeApp({ credential, databaseURL });
 }
