@@ -7,6 +7,7 @@ import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,6 +25,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -43,6 +45,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -182,8 +186,9 @@ private fun ProfileScreenContent(
                 // behind the status bar since the Box behind this Column isn't
                 // padded, only the Column's content is. For the read-only
                 // PublicProfileScreen case, this is the real TopAppBar's height.
-                else -> Column(Modifier.fillMaxSize().padding(padding)) {
+                else -> Column(Modifier.fillMaxSize().padding(bottom = padding.calculateBottomPadding())) {
                     ProfileHero(
+                        topInset = padding.calculateTopPadding(),
                         state = state,
                         palette = palette,
                         editable = !viewModel.isReadOnly,
@@ -217,47 +222,59 @@ private fun ProfileScreenContent(
 
 @Composable
 private fun ProfileHero(
+    topInset: androidx.compose.ui.unit.Dp,
     state: ProfileUiState,
     palette: ProfilePalette,
     editable: Boolean,
     uploadingPhoto: Boolean,
     onAvatarClick: () -> Unit
 ) {
+    val gold = Color(0xFFFFD86B)
     Column(
         Modifier
             .fillMaxWidth()
-            .background(ProfileColors.Purple)
-            .padding(20.dp, 28.dp, 20.dp, 20.dp)
+            .clip(RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp))
+            .background(Brush.linearGradient(listOf(Color(0xFF4A2FBF), Color(0xFF7B3FE4), Color(0xFF9D6BFF))))
+            .drawBehind {
+                // Soft decorative circles for depth.
+                drawCircle(Color.White.copy(alpha = 0.07f), radius = size.width * 0.38f, center = Offset(size.width * 0.95f, size.height * 0.05f))
+                drawCircle(Color.White.copy(alpha = 0.05f), radius = size.width * 0.28f, center = Offset(size.width * 0.05f, size.height * 1.0f))
+            }
+            .padding(20.dp, 28.dp + topInset, 20.dp, 22.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier.size(64.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.2f)).then(
-                    if (editable) Modifier.clickable(onClick = onAvatarClick) else Modifier
-                ),
-                contentAlignment = Alignment.Center
-            ) {
-                if (state.photoUrl != null) {
-                    AsyncImage(
-                        model = state.photoUrl,
-                        contentDescription = "Profile photo",
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize().clip(CircleShape)
-                    )
-                } else {
-                    Text(state.name.firstOrNull()?.uppercase() ?: "?", color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Black)
-                }
-                if (uploadingPhoto) {
-                    Box(Modifier.fillMaxSize().clip(CircleShape).background(Color.Black.copy(alpha = 0.4f)), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(modifier = Modifier.size(22.dp), color = Color.White, strokeWidth = 2.dp)
+            Box(contentAlignment = Alignment.Center) {
+                Box(
+                    Modifier
+                        .size(76.dp)
+                        .border(2.5.dp, Brush.linearGradient(listOf(gold, Color.White.copy(alpha = 0.85f))), CircleShape)
+                        .padding(4.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.2f))
+                        .then(if (editable) Modifier.clickable(onClick = onAvatarClick) else Modifier),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (state.photoUrl != null) {
+                        AsyncImage(
+                            model = state.photoUrl,
+                            contentDescription = "Profile photo",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize().clip(CircleShape)
+                        )
+                    } else {
+                        Text(state.name.firstOrNull()?.uppercase() ?: "?", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Black)
+                    }
+                    if (uploadingPhoto) {
+                        Box(Modifier.fillMaxSize().clip(CircleShape).background(Color.Black.copy(alpha = 0.4f)), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(modifier = Modifier.size(22.dp), color = Color.White, strokeWidth = 2.dp)
+                        }
                     }
                 }
-                // Once a photo is set, the avatar itself stays tappable to
-                // change it — the little camera badge was only ever needed
-                // to signal "tap here to add one" before a photo existed.
+                // Camera hint only until a photo exists (the avatar itself stays tappable after that).
                 if (editable && state.photoUrl == null) {
                     Box(
                         Modifier
-                            .align(Alignment.BottomEnd)
+                            .align(Alignment.BottomStart)
                             .size(22.dp)
                             .clip(CircleShape)
                             .background(ProfileColors.Purple)
@@ -268,24 +285,44 @@ private fun ProfileHero(
                     }
                 }
             }
-            Spacer(Modifier.width(14.dp))
-            Column {
-                Text(state.name.ifBlank { "You" }, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
+            Spacer(Modifier.width(16.dp))
+            Column(Modifier.weight(1f)) {
+                Text(state.name.ifBlank { "You" }, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
                 Spacer(Modifier.height(2.dp))
-                Text(state.handle, color = Color.White.copy(alpha = 0.75f), fontSize = 12.5.sp)
+                Text(state.handle, color = Color.White.copy(alpha = 0.75f), fontSize = 13.sp)
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "Level ${state.level} · ${state.tier}",
+                        color = Color.White, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = 0.18f)).padding(horizontal = 10.dp, vertical = 4.dp)
+                    )
+                }
+            }
+            Row(
+                Modifier.clip(RoundedCornerShape(50)).background(gold).padding(horizontal = 10.dp, vertical = 5.dp).align(Alignment.Top),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Filled.EmojiEvents, contentDescription = null, tint = Color(0xFF5A3A00), modifier = Modifier.size(14.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("#${state.rank}", color = Color(0xFF3B2494), fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
             }
         }
-        Spacer(Modifier.height(14.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("Level ${state.level} · ${state.tier}", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-            Text("Rank #${state.rank}", color = Color.White.copy(alpha = 0.85f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(18.dp))
+        Box(Modifier.fillMaxWidth().height(7.dp).clip(RoundedCornerShape(4.dp)).background(Color.White.copy(alpha = 0.22f))) {
+            Box(
+                Modifier
+                    .fillMaxWidth((state.xpIntoLevel / 500f).coerceIn(0f, 1f))
+                    .height(7.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(Brush.horizontalGradient(listOf(Color.White, gold)))
+            )
         }
         Spacer(Modifier.height(6.dp))
-        Box(Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)).background(Color.White.copy(alpha = 0.25f))) {
-            Box(Modifier.fillMaxWidth(state.xpIntoLevel / 500f).height(6.dp).clip(RoundedCornerShape(3.dp)).background(Color.White))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("${state.xpIntoLevel} / 500 XP", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+            Text("to next level", color = Color.White.copy(alpha = 0.7f), fontSize = 11.sp)
         }
-        Spacer(Modifier.height(4.dp))
-        Text("${state.xpIntoLevel} / 500 XP to next level", color = Color.White.copy(alpha = 0.75f), fontSize = 10.5.sp)
         state.photoError?.let {
             Spacer(Modifier.height(6.dp))
             Text(it, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)

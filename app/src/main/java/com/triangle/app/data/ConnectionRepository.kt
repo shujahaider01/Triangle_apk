@@ -107,12 +107,34 @@ object ConnectionRepository {
         social().child("assignPermissions/$ownerUid/$memberUid").setValue(canAssign).await()
     }
 
-    /** Symmetric disconnect — removes both sides' connection entries plus my own permission entry for them. */
+    /**
+     * Per-member permission controlling whether `senderUid` may send announcements to
+     * `recipientUid` — set by recipientUid (a block/allow of that sender). Absent means
+     * allowed, same default-true convention as assignPermissions. Like canAssign, it is
+     * enforced by the sender's client (AnnouncementRepository.send), not by security rules.
+     */
+    fun announcePermissionsFlow(recipientUid: String): Flow<Map<String, Boolean>> =
+        social().child("announcePermissions/$recipientUid").valueFlow().map { snap ->
+            snap.children.mapNotNull { child ->
+                val uid = child.key ?: return@mapNotNull null
+                uid to (child.getValue(Boolean::class.java) ?: true)
+            }.toMap()
+        }
+
+    suspend fun canAnnounce(recipientUid: String, senderUid: String): Boolean =
+        social().child("announcePermissions/$recipientUid/$senderUid").get().await().getValue(Boolean::class.java) ?: true
+
+    suspend fun setAnnouncePermission(recipientUid: String, senderUid: String, allowed: Boolean) {
+        social().child("announcePermissions/$recipientUid/$senderUid").setValue(allowed).await()
+    }
+
+    /** Symmetric disconnect — removes both sides' connection entries plus my own permission entries for them. */
     suspend fun removeConnection(myUid: String, otherUid: String) {
         val updates: Map<String, Any?> = mapOf(
             "connections/$myUid/$otherUid" to null,
             "connections/$otherUid/$myUid" to null,
-            "assignPermissions/$myUid/$otherUid" to null
+            "assignPermissions/$myUid/$otherUid" to null,
+            "announcePermissions/$myUid/$otherUid" to null
         )
         social().updateChildren(updates).await()
     }

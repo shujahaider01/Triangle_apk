@@ -1,6 +1,8 @@
 package com.triangle.app.tasks
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -44,6 +46,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -59,10 +62,12 @@ import com.triangle.app.data.SessionStore
 import com.triangle.app.data.UserRepository
 import com.triangle.app.data.models.Habit
 import com.triangle.app.data.models.HabitFrequency
+import com.triangle.app.reminders.ReminderPermissions
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import java.time.LocalDate
+import java.time.LocalTime
 
 private val DOW_LABELS = listOf("S", "M", "T", "W", "T", "F", "S") // JS Date.getDay(): 0=Sun..6=Sat
 
@@ -130,6 +135,14 @@ fun CreateEditHabitScreen(
     var periodUnit by remember { mutableStateOf(existingHabit?.frequency?.unit ?: "week") }
     var saving by remember { mutableStateOf(false) }
 
+    val context = LocalContext.current
+    var reminderTime by remember { mutableStateOf(existingHabit?.reminderTime) }
+    var reminderEnabled by remember { mutableStateOf(existingHabit?.reminderTime != null) }
+    var showReminderTimePicker by remember { mutableStateOf(false) }
+    val exactAlarmSettingsLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { /* result ignored — ReminderScheduler falls back to an inexact alarm if still not granted */ }
+
     // New habits start on the next color+icon in the auto-assign rotation
     // (matches script.js's _nextAutoColorAndIcon()) instead of always the
     // same default — editing an existing habit keeps its saved color/icon.
@@ -171,6 +184,7 @@ fun CreateEditHabitScreen(
         xpPerCompletion = PriorityXp.xpFor(priority),
         frequency = frequency,
         startDate = LocalDate.now().toString(),
+        reminderTime = if (reminderEnabled) reminderTime else null,
         createdAt = createdAt,
         createdBy = session.uid
     )
@@ -188,6 +202,7 @@ fun CreateEditHabitScreen(
         xpPerCompletion = 0,
         frequency = frequency,
         startDate = LocalDate.now().toString(),
+        reminderTime = if (reminderEnabled) reminderTime else null,
         createdAt = createdAt,
         createdBy = session.uid
     )
@@ -228,7 +243,8 @@ fun CreateEditHabitScreen(
                     color = color,
                     iconSvg = iconSvg,
                     category = category,
-                    frequency = frequency
+                    frequency = frequency,
+                    reminderTime = if (reminderEnabled) reminderTime else null
                 )
             )
         } else {
@@ -240,7 +256,8 @@ fun CreateEditHabitScreen(
                     iconSvg = iconSvg,
                     priority = priority,
                     xpPerCompletion = PriorityXp.xpFor(priority),
-                    frequency = frequency
+                    frequency = frequency,
+                    reminderTime = if (reminderEnabled) reminderTime else null
                 )
             )
         }
@@ -449,6 +466,19 @@ fun CreateEditHabitScreen(
                 }
             }
 
+            ReminderSection(
+                enabled = reminderEnabled,
+                time = reminderTime,
+                onToggle = { on ->
+                    if (on && !ReminderPermissions.canScheduleExactAlarms(context)) {
+                        exactAlarmSettingsLauncher.launch(ReminderPermissions.exactAlarmSettingsIntent(context))
+                    }
+                    reminderEnabled = on
+                    if (on && reminderTime == null) showReminderTimePicker = true
+                },
+                onTimeClick = { showReminderTimePicker = true }
+            )
+
             if (effectiveSolo) {
                 Column {
                     Text("Category", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -485,5 +515,16 @@ fun CreateEditHabitScreen(
             }
             Spacer(Modifier.height(40.dp))
         }
+    }
+
+    if (showReminderTimePicker) {
+        ReminderTimePickerDialog(
+            initial = reminderTime?.let { runCatching { LocalTime.parse(it) }.getOrNull() },
+            onDismiss = { showReminderTimePicker = false },
+            onConfirm = {
+                reminderTime = it.toString().take(5) // LocalTime.toString() is "HH:mm[:ss]" — keep just "HH:mm"
+                showReminderTimePicker = false
+            }
+        )
     }
 }

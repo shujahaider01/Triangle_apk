@@ -1,0 +1,9 @@
+<resources>
+    <!-- Android 12+ system splash also shows the "by Techdive" branding image at the bottom. -->
+    <style name="Theme.App.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/triangle_purple</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_icon</item>
+        <item name="android:windowSplashScreenBrandingImage">@drawable/splash_branding</item>
+        <item name="postSplashScreenTheme">@style/Theme.TraineeXP</item>
+    </style>
+</resources>

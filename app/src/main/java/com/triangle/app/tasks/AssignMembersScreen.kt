@@ -70,7 +70,10 @@ fun AssignMembersScreen(
     recentUids: List<String>,
     initiallySelected: Set<String>,
     onClose: () -> Unit,
-    onDone: (Set<String>) -> Unit
+    onDone: (Set<String>) -> Unit,
+    title: String = "Assign $itemLabel",
+    heading: String = "Assign to",
+    showRecentTab: Boolean = true
 ) {
     var query by remember { mutableStateOf("") }
     var tab by remember { mutableStateOf(AssignTab.ALL) }
@@ -97,7 +100,7 @@ fun AssignMembersScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Assign $itemLabel", fontSize = 18.sp, fontWeight = FontWeight.Bold) },
+                title = { Text(title, fontSize = 18.sp, fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onClose) { Icon(Icons.Default.Close, contentDescription = "Close") }
                 },
@@ -112,7 +115,7 @@ fun AssignMembersScreen(
         Column(Modifier.fillMaxSize().padding(padding)) {
             Column(Modifier.padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Assign to", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    Text(heading, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                     Text(
                         "${selected.size} selected",
                         fontSize = 13.sp,
@@ -129,7 +132,7 @@ fun AssignMembersScreen(
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     AssignTabChip("All", tab == AssignTab.ALL) { tab = AssignTab.ALL }
-                    AssignTabChip("Recent", tab == AssignTab.RECENT) { tab = AssignTab.RECENT }
+                    if (showRecentTab) AssignTabChip("Recent", tab == AssignTab.RECENT) { tab = AssignTab.RECENT }
                 }
             }
             HorizontalDivider()

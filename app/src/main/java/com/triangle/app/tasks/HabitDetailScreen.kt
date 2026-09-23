@@ -62,7 +62,7 @@ import com.triangle.app.data.HabitPalette
 import com.triangle.app.data.HabitRepository
 import com.triangle.app.data.HabitStats
 import com.triangle.app.data.SessionStore
-import com.triangle.app.data.TaskNoteRepository
+import com.triangle.app.ui.components.rememberDriveImageUploader
 import com.triangle.app.data.UserRepository
 import com.triangle.app.data.models.Habit
 import com.triangle.app.data.models.TaskNote
@@ -86,10 +86,14 @@ fun HabitDetailScreen(
     habit: Habit,
     canEdit: Boolean,
     onEdit: () -> Unit,
+    onDelete: () -> Unit,
+    onArchive: () -> Unit,
     onOpenAnalytics: () -> Unit,
     onBack: () -> Unit,
     highlightOnOpen: Boolean = false
 ) {
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+    var showArchiveConfirm by remember { mutableStateOf(false) }
     val streak = viewModel.streakFor(habit)
     val today = LocalDate.now().toString()
 
@@ -138,10 +142,11 @@ fun HabitDetailScreen(
     }
     val cameraLauncher = rememberCameraCaptureLauncher { bmp -> rawPhotoForCrop = bmp }
 
+    val driveUploader = rememberDriveImageUploader()
     fun uploadPhoto(bmp: Bitmap) {
         scope.launch {
             runCatching {
-                val url = TaskNoteRepository.uploadHabitPhoto(session.orgId, session.uid, habit.id, bmp)
+                val url = driveUploader.upload(bmp, "TriangleHabitPhoto_${habit.id}_${System.currentTimeMillis()}.jpg")
                 HabitRepository.addHabitPhoto(
                     session.orgId, habit.id,
                     TaskNote(type = "photo", content = url, userId = session.uid, userName = session.name, role = session.role, timestamp = System.currentTimeMillis())
@@ -195,7 +200,14 @@ fun HabitDetailScreen(
                         }
                     },
                     onBack = onBack,
-                    onEdit = if (canEdit) onEdit else null
+                    menuOptions = buildList {
+                        if (canEdit) {
+                            add(DetailMenuOption("Edit", onClick = onEdit))
+                            add(DetailMenuOption("Delete", destructive = true, onClick = { showDeleteConfirm = true }))
+                        } else {
+                            add(DetailMenuOption("Archive", onClick = { showArchiveConfirm = true }))
+                        }
+                    }
                 )
             }
             Column(
@@ -277,6 +289,26 @@ fun HabitDetailScreen(
         }
 
         DetailStickyHeader(title = habit.name, visible = scrollProgress >= 1f, onBack = onBack)
+    }
+
+    if (showDeleteConfirm) {
+        ConfirmDialog(
+            title = "Delete this habit?",
+            body = "This can't be undone.",
+            confirmLabel = "Delete",
+            destructive = true,
+            onConfirm = { showDeleteConfirm = false; onDelete(); onBack() },
+            onDismiss = { showDeleteConfirm = false }
+        )
+    }
+    if (showArchiveConfirm) {
+        ConfirmDialog(
+            title = "Archive this habit?",
+            body = "It'll be hidden from your lists. You can find it later under Settings > Archived Items.",
+            confirmLabel = "Archive",
+            onConfirm = { showArchiveConfirm = false; onArchive(); onBack() },
+            onDismiss = { showArchiveConfirm = false }
+        )
     }
 
     if (showPhotoSheet) {

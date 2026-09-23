@@ -44,9 +44,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.triangle.app.data.HighlightBus
+import com.triangle.app.data.HighlightKind
 import com.triangle.app.data.SessionStore
 import com.triangle.app.data.models.DmMessage
 import com.triangle.app.ui.components.Avatar
+import com.triangle.app.ui.components.deepLinkHighlight
+import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -66,9 +70,30 @@ fun DmThreadScreen(
     var menuOpen by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
 
+    // A tapped chat notification asked to highlight one specific message (see HighlightBus);
+    // until it's found and shown, the usual "jump to newest" scroll must not win over it.
+    val highlightReq by HighlightBus.request.collectAsState()
+    val messageReq = highlightReq?.takeIf { it.kind == HighlightKind.MESSAGE }
+    var highlightedMessageId by remember { mutableStateOf<String?>(null) }
+
     LaunchedEffect(otherUserId) { viewModel.openThread(otherUserId) }
     LaunchedEffect(state.messages.size) {
-        if (state.messages.isNotEmpty()) listState.animateScrollToItem(state.messages.size - 1)
+        if (state.messages.isNotEmpty() && messageReq == null) listState.animateScrollToItem(state.messages.size - 1)
+    }
+    LaunchedEffect(messageReq, state.messages) {
+        val req = messageReq ?: return@LaunchedEffect
+        val index = state.messages.indexOfFirst { it.id == req.itemId }
+        if (index < 0) return@LaunchedEffect
+        listState.animateScrollToItem(index)
+        highlightedMessageId = req.itemId
+        delay(3000)
+        highlightedMessageId = null
+        HighlightBus.clear(req)
+    }
+    LaunchedEffect(messageReq) {
+        val req = messageReq ?: return@LaunchedEffect
+        delay(8000)
+        HighlightBus.clear(req) // message never appeared in this thread — fall back to normal behavior
     }
 
     Scaffold(
@@ -112,7 +137,7 @@ fun DmThreadScreen(
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 12.dp)
             ) {
                 items(state.messages, key = { it.id }) { message ->
-                    MessageBubble(message, isMine = message.senderId == session.uid, palette = palette)
+                    MessageBubble(message, isMine = message.senderId == session.uid, palette = palette, highlighted = highlightedMessageId == message.id)
                 }
             }
 
@@ -150,8 +175,8 @@ fun DmThreadScreen(
 }
 
 @Composable
-private fun MessageBubble(message: DmMessage, isMine: Boolean, palette: DmPalette) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start) {
+private fun MessageBubble(message: DmMessage, isMine: Boolean, palette: DmPalette, highlighted: Boolean) {
+    Row(Modifier.fillMaxWidth().deepLinkHighlight(highlighted), horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start) {
         Column(
             Modifier
                 .widthIn(max = 280.dp)

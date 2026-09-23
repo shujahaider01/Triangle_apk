@@ -3,7 +3,14 @@
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.CAMERA"/>
+    <!-- Self-hosted in-app updates (update/AppUpdater.kt) hand the downloaded APK to the system installer. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
     <uses-feature android:name="android.hardware.camera" android:required="false"/>
+    <!-- Reminder feature: exact-time task/habit alarms (see reminders/ReminderScheduler.kt)
+         and re-arming them after a reboot clears every pending AlarmManager alarm. -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <application
         android:hardwareAccelerated="true"
         android:allowBackup="true"
@@ -58,6 +65,20 @@
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"
             android:value="@string/default_notification_channel_id" />
+
+        <!-- Reminder feature: fires when an AlarmManager alarm scheduled by
+             ReminderScheduler goes off, and re-arms every pending reminder
+             after a reboot (AlarmManager alarms don't survive one). -->
+        <receiver
+            android:name=".reminders.ReminderAlarmReceiver"
+            android:exported="false"/>
+        <receiver
+            android:name=".reminders.ReminderBootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+            </intent-filter>
+        </receiver>
 
         <!-- Lets CameraCapture.kt hand the system camera app a content:// Uri
              for its output instead of a raw file:// path (required since API 24). -->

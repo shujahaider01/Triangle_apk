@@ -43,6 +43,13 @@ enum class FeatureFlag(
         status = FlagStatus.TESTING,
         devDefault = true, qaDefault = true, prodDefault = false,
     ),
+    ANNOUNCEMENTS_ENABLED(
+        description = "Announcements: compose (title/text/photos) to saved Circle groups from the Notifications tab, Sent list, edit and recall",
+        owner = "Product",
+        createdDate = "2026-09-23",
+        status = FlagStatus.IN_DEVELOPMENT,
+        devDefault = true, qaDefault = true, prodDefault = false,
+    ),
     NOTIFICATION_BADGE_ENABLED(
         description = "Unread-count badge on the Dashboard's notification bell icon",
         owner = "Product",

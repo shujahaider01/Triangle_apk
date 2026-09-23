@@ -132,7 +132,11 @@ fun CircleScreen(
         sheetMember?.let { member ->
             MemberPermissionsSheet(
                 member = member,
-                onSave = { canAssign -> viewModel.setAssignPermission(member.uid, canAssign); sheetMember = null },
+                onSave = { canAssign, canAnnounce ->
+                    viewModel.setAssignPermission(member.uid, canAssign)
+                    if (canAnnounce != member.canAnnounce) viewModel.setAnnouncePermission(member.uid, canAnnounce)
+                    sheetMember = null
+                },
                 onRemove = { viewModel.removeMember(member.uid); sheetMember = null },
                 onDismiss = { sheetMember = null }
             )
@@ -152,6 +156,9 @@ private fun CircleMemberRow(m: CircleMember, onOpenPermissions: () -> Unit) {
             Text(m.name, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
             if (m.username != null) {
                 Text("@${m.username}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (!m.canAnnounce) {
+                Text("Announcements off", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = AssignRed)
             }
         }
         Spacer(Modifier.width(8.dp))

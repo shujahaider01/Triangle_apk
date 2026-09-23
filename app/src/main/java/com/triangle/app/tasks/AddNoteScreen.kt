@@ -54,7 +54,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.triangle.app.data.SessionStore
-import com.triangle.app.data.TaskNoteRepository
+import com.triangle.app.ui.components.rememberDriveImageUploader
 import com.triangle.app.data.TaskRepository
 import com.triangle.app.data.models.TaskNote
 import com.triangle.app.ui.theme.TriangleBrandPurple
@@ -94,6 +94,7 @@ fun AddNoteScreen(
     var decoding by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    val driveUploader = rememberDriveImageUploader()
 
     val pickImageLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri: Uri? ->
         if (uri == null) return@rememberLauncherForActivityResult
@@ -131,7 +132,7 @@ fun AddNoteScreen(
                     )
                 }
                 croppedBitmap?.let { bmp ->
-                    val url = TaskNoteRepository.uploadNotePhoto(session.orgId, session.uid, taskId, bmp)
+                    val url = driveUploader.upload(bmp, "TriangleTaskNote_${taskId}_${System.currentTimeMillis()}.jpg")
                     TaskRepository.addNote(
                         session.orgId, taskId,
                         TaskNote(type = "photo", content = url, userId = session.uid, userName = session.name, role = session.role, timestamp = System.currentTimeMillis())

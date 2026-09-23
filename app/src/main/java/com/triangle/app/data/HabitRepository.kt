@@ -57,6 +57,12 @@ object HabitRepository {
     private suspend fun readHabits(orgId: String): List<Habit> =
         anyToMapList(orgData(orgId).child("habits").get().await().value).mapNotNull { Habit.fromMap(it) }
 
+    /** One-shot read of a single habit — used by ReminderAlarmReceiver to re-validate before showing a notification. */
+    suspend fun getHabit(orgId: String, habitId: String): Habit? = readHabits(orgId).find { it.id == habitId }
+
+    /** All tasks/habits for an org, one-shot — used by ReminderScheduler.rescheduleAll (boot re-arm). */
+    suspend fun getAllHabits(orgId: String): List<Habit> = readHabits(orgId)
+
     /**
      * Matches script.js's completeHabit(): idempotent (a day already marked
      * done is a no-op — there's no un-complete UI anywhere in the source

@@ -1,6 +1,9 @@
 package com.triangle.app.tasks
 
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -47,6 +50,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -61,11 +65,13 @@ import com.triangle.app.data.TaskRepository
 import com.triangle.app.data.UserRepository
 import com.triangle.app.data.models.ChecklistItem
 import com.triangle.app.data.models.Task
+import com.triangle.app.reminders.ReminderPermissions
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalTime
 import java.time.ZoneId
 
 /**
@@ -115,6 +121,14 @@ fun CreateEditTaskScreen(
     var showDatePicker by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
 
+    val context = LocalContext.current
+    var reminderTime by remember { mutableStateOf(existingTask?.reminderTime) }
+    var reminderEnabled by remember { mutableStateOf(existingTask?.reminderTime != null) }
+    var showReminderTimePicker by remember { mutableStateOf(false) }
+    val exactAlarmSettingsLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { /* result ignored — ReminderScheduler falls back to an inexact alarm if still not granted */ }
+
     var circleLoading by remember { mutableStateOf(true) }
     var circleMembers by remember { mutableStateOf(emptyList<CircleMember>()) }
     var recentRecipients by remember { mutableStateOf(emptyList<String>()) }
@@ -163,6 +177,7 @@ fun CreateEditTaskScreen(
         priority = priority,
         points = points,
         dueDate = dueDate,
+        reminderTime = if (reminderEnabled) reminderTime else null,
         iconColor = color,
         iconSvg = iconSvg,
         checklist = checklist,
@@ -186,6 +201,7 @@ fun CreateEditTaskScreen(
         priority = "medium",
         points = 0,
         dueDate = dueDate,
+        reminderTime = if (reminderEnabled) reminderTime else null,
         iconColor = color,
         iconSvg = iconSvg,
         checklist = checklist,
@@ -228,6 +244,7 @@ fun CreateEditTaskScreen(
                     description = description,
                     category = category,
                     dueDate = dueDate,
+                    reminderTime = if (reminderEnabled) reminderTime else null,
                     iconColor = color,
                     iconSvg = iconSvg,
                     checklist = checklist
@@ -242,6 +259,7 @@ fun CreateEditTaskScreen(
                     priority = priority,
                     points = points,
                     dueDate = dueDate,
+                    reminderTime = if (reminderEnabled) reminderTime else null,
                     iconColor = color,
                     iconSvg = iconSvg,
                     checklist = checklist
@@ -384,6 +402,20 @@ fun CreateEditTaskScreen(
                 }
             }
 
+            ReminderSection(
+                enabled = reminderEnabled,
+                time = reminderTime,
+                disabledHint = if (dueDate == null) "Set a due date first" else null,
+                onToggle = { on ->
+                    if (on && !ReminderPermissions.canScheduleExactAlarms(context)) {
+                        exactAlarmSettingsLauncher.launch(ReminderPermissions.exactAlarmSettingsIntent(context))
+                    }
+                    reminderEnabled = on
+                    if (on && reminderTime == null) showReminderTimePicker = true
+                },
+                onTimeClick = { showReminderTimePicker = true }
+            )
+
             ChecklistEditor(items = checklist, onChange = { checklist = it })
 
             if (!isNew && existingTask?.isPersonal == true && existingTask.createdBy == session.uid) {
@@ -418,6 +450,22 @@ fun CreateEditTaskScreen(
         ) {
             DatePicker(state = pickerState)
         }
+    }
+
+    if (showReminderTimePicker) {
+        ReminderTimePickerDialog(
+            initial = reminderTime?.let { runCatching { LocalTime.parse(it) }.getOrNull() },
+            onDismiss = { showReminderTimePicker = false },
+            onConfirm = { picked ->
+                val isDueToday = dueDate == LocalDate.now().toString()
+                if (isDueToday && picked.isBefore(LocalTime.now())) {
+                    Toast.makeText(context, "Reminder time must be after the current time", Toast.LENGTH_SHORT).show()
+                } else {
+                    reminderTime = picked.toString().take(5) // LocalTime.toString() is "HH:mm[:ss]" — keep just "HH:mm"
+                    showReminderTimePicker = false
+                }
+            }
+        )
     }
 }
 

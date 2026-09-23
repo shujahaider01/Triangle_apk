@@ -238,4 +238,22 @@ object AssignmentRepository {
 
     fun assignedByMeFlow(assignerUid: String) =
         social().child("assignedByMe/$assignerUid").valueFlow()
+
+    /**
+     * Assigner-side delete: removes the item from every recipient's own org
+     * (each recipient holds an independent copy, same id) and drops the whole
+     * assignedByMe/{assignerUid}/{itemId} index subtree. Per-recipient
+     * failures are swallowed so one unreachable org doesn't strand the rest.
+     */
+    suspend fun deleteTaskAssignment(assignerUid: String, itemId: String) = coroutineScope {
+        val entries = readAssignedByMe(assignerUid).filter { it.itemId == itemId && it.type == "task" }
+        entries.map { entry -> async { runCatching { TaskRepository.deleteTask(entry.recipientOrgId, itemId) } } }.awaitAll()
+        social().child("assignedByMe/$assignerUid/$itemId").removeValue().await()
+    }
+
+    suspend fun deleteHabitAssignment(assignerUid: String, itemId: String) = coroutineScope {
+        val entries = readAssignedByMe(assignerUid).filter { it.itemId == itemId && it.type == "habit" }
+        entries.map { entry -> async { runCatching { HabitRepository.deleteHabit(entry.recipientOrgId, itemId) } } }.awaitAll()
+        social().child("assignedByMe/$assignerUid/$itemId").removeValue().await()
+    }
 }

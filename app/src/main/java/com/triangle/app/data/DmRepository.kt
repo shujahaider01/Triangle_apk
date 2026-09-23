@@ -93,7 +93,7 @@ object DmRepository {
         )
         root.updateChildren(updates).await()
 
-        runCatching { NotificationRepository.notifyDmMessage(otherUid, myUid, myName, text) }
+        runCatching { NotificationRepository.notifyDmMessage(otherUid, myUid, myName, text, messageId = pushKey) }
         return SendResult.Success
     }
 

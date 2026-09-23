@@ -64,12 +64,16 @@ data class Habit(
     val frequency: HabitFrequency = HabitFrequency("everyday"),
     val startDate: String,
     val endDate: String? = null,
+    /** "HH:mm" 24h time-of-day; fires only on days frequency.isScheduledFor() matches. See ReminderScheduler. */
+    val reminderTime: String? = null,
     val priority: String = "medium", // "low" | "medium" | "high" | "critical" — see data/PriorityXp.kt; xpPerCompletion is derived from this at assignment time, not freely entered
     val xpPerCompletion: Int = 5,
     val createdAt: Long = 0L,
     val createdBy: String? = null,
     /** Habit Detail's photo timeline (script.js's habit.photos) — reuses TaskNote's shape since it's generic enough (type/content/userId/userName/role/timestamp), same as Task.notes. */
-    val photos: List<TaskNote> = emptyList()
+    val photos: List<TaskNote> = emptyList(),
+    /** Hides this copy from the owner's active Habits panes without deleting it — see Settings > Archived Items. Per-copy, not shared across recipients. */
+    val archived: Boolean = false
 ) {
     /** Same rule as script.js's _habitIsInRange(). */
     fun isInRange(dateStr: String): Boolean =
@@ -79,8 +83,10 @@ data class Habit(
         "id" to id, "name" to name, "description" to description, "iconSvg" to iconSvg, "color" to color,
         "category" to category,
         "assignedTo" to assignedTo, "frequency" to frequency.toMap(), "startDate" to startDate, "endDate" to endDate,
+        "reminderTime" to reminderTime,
         "priority" to priority, "xpPerCompletion" to xpPerCompletion, "createdAt" to createdAt, "createdBy" to createdBy,
-        "photos" to photos.map { it.toMap() }
+        "photos" to photos.map { it.toMap() },
+        "archived" to archived
     )
 
     companion object {
@@ -98,13 +104,15 @@ data class Habit(
                 frequency = (m["frequency"] as? Map<*, *>)?.let { HabitFrequency.fromMap(it) } ?: HabitFrequency("everyday"),
                 startDate = m["startDate"] as? String ?: "",
                 endDate = m["endDate"] as? String,
+                reminderTime = m["reminderTime"] as? String,
                 priority = m["priority"] as? String ?: "medium",
                 // A Solo habit's xpPerCompletion is a deliberate 0 (no XP) — only floor
                 // a MISSING value to 5, not an explicit 0, so that stays 0 on reload.
                 xpPerCompletion = (m["xpPerCompletion"] as? Number)?.toInt() ?: 5,
                 createdAt = (m["createdAt"] as? Number)?.toLong() ?: 0L,
                 createdBy = m["createdBy"]?.toString(),
-                photos = anyToMapList(m["photos"]).mapNotNull { TaskNote.fromMap(it) }
+                photos = anyToMapList(m["photos"]).mapNotNull { TaskNote.fromMap(it) },
+                archived = m["archived"] == true
             )
         }
     }

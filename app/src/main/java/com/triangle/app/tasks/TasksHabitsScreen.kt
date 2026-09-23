@@ -64,6 +64,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.launch
+import androidx.compose.runtime.mutableIntStateOf
+import com.triangle.app.ui.components.ConfettiOverlay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -80,6 +82,10 @@ import androidx.activity.compose.BackHandler
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import com.triangle.app.data.AssignmentRepository
+import com.triangle.app.data.HighlightBus
+import com.triangle.app.data.HighlightKind
+import com.triangle.app.ui.components.deepLinkHighlight
+import kotlinx.coroutines.delay
 import com.triangle.app.navigation.AppBottomNav
 import com.triangle.app.navigation.BottomNavTab
 import com.triangle.app.ui.theme.TriangleBrandPurple
@@ -110,14 +116,24 @@ fun TasksHabitsScreen(
     val dark = triangleDarkTheme()
     val snackbarHostState = remember { SnackbarHostState() }
     val snackbarScope = rememberCoroutineScope()
+    var confettiTrigger by remember { mutableIntStateOf(0) }
     fun showTaskCompletedUndo(task: com.triangle.app.data.models.Task) {
+        confettiTrigger++
+        com.triangle.app.ui.components.CompletionSounds.playTask()
         snackbarScope.launch {
+            delay(1700)
             val result = snackbarHostState.showSnackbar("Task completed", actionLabel = "Undo", duration = SnackbarDuration.Short)
             if (result == SnackbarResult.ActionPerformed) viewModel.undoComplete(task)
         }
     }
-    fun showHabitCompletedToast() {
-        snackbarScope.launch { snackbarHostState.showSnackbar("Habit completed!") }
+    fun showHabitCompletedUndo(habit: com.triangle.app.data.models.Habit) {
+        confettiTrigger++
+        com.triangle.app.ui.components.CompletionSounds.playHabit()
+        snackbarScope.launch {
+            delay(1700)
+            val result = snackbarHostState.showSnackbar("Habit completed", actionLabel = "Undo", duration = SnackbarDuration.Short)
+            if (result == SnackbarResult.ActionPerformed) viewModel.undoHabitComplete(habit)
+        }
     }
 
     // Scroll state of whichever pane's LazyColumn is currently active —
@@ -149,6 +165,49 @@ fun TasksHabitsScreen(
         snapshotFlow { pagerState.settledPage }.collect { viewModel.setActivePane(it) }
     }
 
+    // A notification tap asked to reveal + highlight one task/habit (see HighlightBus).
+    // Phase 1 puts the list in a state where the item is visible (its date/mode, no
+    // narrowing filters) — retried as data loads; phase 2 scrolls to the row and lights it.
+    val highlightReq by HighlightBus.request.collectAsState()
+    val loadedTasks by viewModel.tasks.collectAsState()
+    val loadedHabits by viewModel.habits.collectAsState()
+    val itemReq = highlightReq?.takeIf { it.kind == HighlightKind.TASK || it.kind == HighlightKind.HABIT }
+    var targetId by remember(itemReq) { mutableStateOf<String?>(null) }
+    var highlightedId by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(itemReq, loadedTasks, loadedHabits) {
+        val req = itemReq ?: return@LaunchedEffect
+        if (targetId != null) return@LaunchedEffect
+        // Old notifications carry no item id — fall back to the newest item with that name.
+        val id = req.itemId.ifBlank {
+            if (req.kind == HighlightKind.TASK) loadedTasks.filter { it.title == req.title }.maxByOrNull { it.createdAt }?.id
+            else loadedHabits.filter { it.name == req.title }.maxByOrNull { it.createdAt }?.id
+        } ?: return@LaunchedEffect
+        val ok = if (req.kind == HighlightKind.TASK) viewModel.revealTask(id) else viewModel.revealHabit(id)
+        if (ok) targetId = id
+    }
+    LaunchedEffect(itemReq) {
+        val req = itemReq ?: return@LaunchedEffect
+        delay(8000)
+        if (targetId == null) HighlightBus.clear(req) // never appeared (deleted/archived) — stop waiting
+    }
+    LaunchedEffect(itemReq, targetId, state.visibleTasks, state.visibleHabits) {
+        val req = itemReq ?: return@LaunchedEffect
+        val id = targetId ?: return@LaunchedEffect
+        val isTask = req.kind == HighlightKind.TASK
+        val index = if (isTask) {
+            state.visibleTasks.indexOfFirst { (it is TaskRow.Own && it.task.id == id) || (it is TaskRow.Assigned && it.group.itemId == id) }
+        } else {
+            state.visibleHabits.indexOfFirst { (it is HabitRow.Own && it.habit.id == id) || (it is HabitRow.Assigned && it.group.itemId == id) }
+        }
+        if (index < 0) return@LaunchedEffect
+        pagerState.scrollToPage(if (isTask) 0 else 1)
+        (if (isTask) tasksListState else habitsListState).animateScrollToItem(index)
+        highlightedId = id
+        delay(3000)
+        highlightedId = null
+        HighlightBus.clear(req)
+    }
+
     // Assigned-out rows are a one-shot join against every recipient's org
     // (see AssignmentRepository.readAssignedGroups) rather than a live
     // subscription, so a recipient completing their copy only shows up
@@ -174,11 +233,20 @@ fun TasksHabitsScreen(
     BackHandler(enabled = assignedHabitAnalytics != null) { assignedHabitAnalytics = null }
     BackHandler(enabled = showFilterSheet) { showFilterSheet = false }
     assignedTaskDetail?.let { group ->
-        AssignedTaskDetailScreen(group = group, onBack = { assignedTaskDetail = null })
+        AssignedTaskDetailScreen(
+            group = group,
+            onDelete = { viewModel.deleteTaskAssignment(group.itemId); assignedTaskDetail = null },
+            onBack = { assignedTaskDetail = null }
+        )
         return
     }
     assignedHabitDetail?.let { group ->
-        AssignedHabitDetailScreen(group = group, dateStr = state.selectedDate.toString(), onBack = { assignedHabitDetail = null })
+        AssignedHabitDetailScreen(
+            group = group,
+            dateStr = state.selectedDate.toString(),
+            onDelete = { viewModel.deleteHabitAssignment(group.itemId); assignedHabitDetail = null },
+            onBack = { assignedHabitDetail = null }
+        )
         return
     }
     assignedHabitAnalytics?.let { group ->
@@ -200,8 +268,8 @@ fun TasksHabitsScreen(
         return
     }
 
+    Box(Modifier.fillMaxSize()) {
     Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
             FloatingActionButton(onClick = {
                 val isSolo = state.itemMode == ItemMode.SOLO
@@ -298,7 +366,8 @@ fun TasksHabitsScreen(
                             listState = tasksListState,
                             onOpenDetail = onOpenTaskDetail,
                             onOpenAssignedDetail = { assignedTaskDetail = it },
-                            onTaskCompleted = ::showTaskCompletedUndo
+                            onTaskCompleted = ::showTaskCompletedUndo,
+                            highlightedId = highlightedId
                         )
                     } else {
                         HabitsPane(
@@ -309,12 +378,17 @@ fun TasksHabitsScreen(
                             onOpenAnalytics = onOpenHabitAnalytics,
                             onOpenAssignedDetail = { assignedHabitDetail = it },
                             onOpenAssignedAnalytics = { assignedHabitAnalytics = it },
-                            onHabitCompleted = ::showHabitCompletedToast
+                            onHabitCompleted = ::showHabitCompletedUndo,
+                            highlightedId = highlightedId
                         )
                     }
                 }
             }
+            ConfettiOverlay(confettiTrigger)
         }
+    }
+    // Above the Scaffold (so the nav bar can't cover it), low over the environment strip.
+    SnackbarHost(snackbarHostState, Modifier.align(Alignment.BottomCenter).padding(bottom = 60.dp))
     }
 }
 
@@ -523,7 +597,8 @@ private fun TasksPane(
     listState: LazyListState,
     onOpenDetail: (String) -> Unit,
     onOpenAssignedDetail: (AssignmentRepository.AssignedTaskGroup) -> Unit,
-    onTaskCompleted: (com.triangle.app.data.models.Task) -> Unit
+    onTaskCompleted: (com.triangle.app.data.models.Task) -> Unit,
+    highlightedId: String?
 ) {
     if (state.isLoading) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
@@ -541,21 +616,24 @@ private fun TasksPane(
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         items(state.visibleTasks, key = { row -> when (row) { is TaskRow.Own -> row.task.id; is TaskRow.Assigned -> "assigned-${row.group.itemId}" } }) { row ->
-            when (row) {
-                is TaskRow.Own -> {
-                    val done = viewModel.isDone(row.task, state.completions)
-                    TaskRowCard(
-                        task = row.task,
-                        done = done,
-                        onClick = { onOpenDetail(row.task.id) },
-                        onToggleDone = { viewModel.completeTaskWithUndo(row.task); onTaskCompleted(row.task) }
+            val rowId = when (row) { is TaskRow.Own -> row.task.id; is TaskRow.Assigned -> row.group.itemId }
+            Box(Modifier.deepLinkHighlight(highlightedId == rowId)) {
+                when (row) {
+                    is TaskRow.Own -> {
+                        val done = viewModel.isDone(row.task, state.completions)
+                        TaskRowCard(
+                            task = row.task,
+                            done = done,
+                            onClick = { onOpenDetail(row.task.id) },
+                            onToggleDone = { viewModel.completeTaskWithUndo(row.task); onTaskCompleted(row.task) }
+                        )
+                    }
+                    is TaskRow.Assigned -> AssignedTaskRowCard(
+                        group = row.group,
+                        onClick = { onOpenAssignedDetail(row.group) },
+                        onShowProgress = { expandedGroup = row.group }
                     )
                 }
-                is TaskRow.Assigned -> AssignedTaskRowCard(
-                    group = row.group,
-                    onClick = { onOpenAssignedDetail(row.group) },
-                    onShowProgress = { expandedGroup = row.group }
-                )
             }
         }
     }
@@ -577,7 +655,8 @@ private fun HabitsPane(
     onOpenAnalytics: (String) -> Unit,
     onOpenAssignedDetail: (AssignmentRepository.AssignedHabitGroup) -> Unit,
     onOpenAssignedAnalytics: (AssignmentRepository.AssignedHabitGroup) -> Unit,
-    onHabitCompleted: () -> Unit
+    onHabitCompleted: (com.triangle.app.data.models.Habit) -> Unit,
+    highlightedId: String?
 ) {
     if (state.isLoading) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
@@ -596,27 +675,30 @@ private fun HabitsPane(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         items(state.visibleHabits, key = { row -> when (row) { is HabitRow.Own -> row.habit.id; is HabitRow.Assigned -> "assigned-${row.group.itemId}" } }) { row ->
-            when (row) {
-                is HabitRow.Own -> {
-                    val completionsForHabit = state.habitCompletions[row.habit.id] ?: emptyMap()
-                    HabitCard(
-                        habit = row.habit,
-                        completions = completionsForHabit,
-                        streak = viewModel.streakFor(row.habit).current,
-                        doneToday = completionsForHabit.containsKey(dateStr),
-                        canComplete = state.selectedDate == java.time.LocalDate.now(),
-                        onClick = { onOpenDetail(row.habit.id) },
-                        onOpenAnalytics = { onOpenAnalytics(row.habit.id) },
-                        onCompleteToday = { viewModel.completeHabitToday(row.habit); onHabitCompleted() }
+            val rowId = when (row) { is HabitRow.Own -> row.habit.id; is HabitRow.Assigned -> row.group.itemId }
+            Box(Modifier.deepLinkHighlight(highlightedId == rowId)) {
+                when (row) {
+                    is HabitRow.Own -> {
+                        val completionsForHabit = state.habitCompletions[row.habit.id] ?: emptyMap()
+                        HabitCard(
+                            habit = row.habit,
+                            completions = completionsForHabit,
+                            streak = viewModel.streakFor(row.habit).current,
+                            doneToday = completionsForHabit.containsKey(dateStr) || (state.selectedDate == java.time.LocalDate.now() && row.habit.id in state.optimisticHabitDone),
+                            canComplete = state.selectedDate == java.time.LocalDate.now(),
+                            onClick = { onOpenDetail(row.habit.id) },
+                            onOpenAnalytics = { onOpenAnalytics(row.habit.id) },
+                            onCompleteToday = { viewModel.completeHabitToday(row.habit); onHabitCompleted(row.habit) }
+                        )
+                    }
+                    is HabitRow.Assigned -> AssignedHabitRowCard(
+                        group = row.group,
+                        dateStr = dateStr,
+                        onClick = { onOpenAssignedDetail(row.group) },
+                        onShowProgress = { expandedGroup = row.group },
+                        onOpenAnalytics = { onOpenAssignedAnalytics(row.group) }
                     )
                 }
-                is HabitRow.Assigned -> AssignedHabitRowCard(
-                    group = row.group,
-                    dateStr = dateStr,
-                    onClick = { onOpenAssignedDetail(row.group) },
-                    onShowProgress = { expandedGroup = row.group },
-                    onOpenAnalytics = { onOpenAssignedAnalytics(row.group) }
-                )
             }
         }
     }

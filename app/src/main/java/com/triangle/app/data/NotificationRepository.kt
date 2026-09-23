@@ -45,9 +45,13 @@ object NotificationRepository {
      * the fixed DM_ORG_ID DM data itself lives under), then their
      * notification array is read-unshifted-capped-written — see push() below.
      */
-    suspend fun notifyDmMessage(toUid: String, fromUid: String, fromName: String, preview: String) {
-        push(toUid, "chat_message", fromName, preview, otherUserId = fromUid)
+    suspend fun notifyDmMessage(toUid: String, fromUid: String, fromName: String, preview: String, messageId: String? = null) {
+        push(toUid, "chat_message", fromName, preview, otherUserId = fromUid, itemId = messageId)
     }
+
+    /** One-shot lookup of a single notification record — resolves a tapped push's `notifId` to its type/itemId/otherUserId. */
+    suspend fun getNotification(orgId: String, uid: String, notifId: String): AppNotification? =
+        anyToMapList(notifRef(orgId, uid).get().await().value).mapNotNull { AppNotification.fromMap(it) }.find { it.id == notifId }
 
     private fun newNotifId(): String =
         "n-${System.currentTimeMillis()}-${(('a'..'z') + ('0'..'9')).shuffled().take(5).joinToString("")}"
@@ -78,6 +82,28 @@ object NotificationRepository {
     /** Someone in my Circle assigned me a task — see AssignmentRepository.assignTask(). */
     suspend fun notifyTaskAssigned(toUid: String, fromUid: String, fromName: String, taskTitle: String, taskId: String) {
         push(toUid, "task_assigned", fromName, "assigned you a task: $taskTitle", otherUserId = fromUid, itemId = taskId)
+    }
+
+    /** Someone announced to a group I'm in — the row only carries a preview; the full text/photos live at social/announcements/{id}. */
+    suspend fun notifyAnnouncement(toUid: String, fromUid: String, fromName: String, title: String, preview: String, announcementId: String) {
+        push(toUid, "announcement", title, "$fromName · $preview", otherUserId = fromUid, itemId = announcementId)
+    }
+
+    /** Drops one notification row (matched by type+itemId) from a recipient's array — used when an announcement is recalled. */
+    suspend fun removeByItemId(orgId: String, uid: String, type: String, itemId: String) {
+        val current = anyToMapList(notifRef(orgId, uid).get().await().value).mapNotNull { AppNotification.fromMap(it) }
+        val updated = current.filterNot { it.type == type && it.itemId == itemId }
+        if (updated.size != current.size) notifRef(orgId, uid).setValue(updated.map { it.toMap() }).await()
+    }
+
+    /** Rewrites the title/body of a recipient's existing row in place (no new push, read state kept) — used when an announcement is edited. */
+    suspend fun updateByItemId(orgId: String, uid: String, type: String, itemId: String, title: String, body: String) {
+        val current = anyToMapList(notifRef(orgId, uid).get().await().value).mapNotNull { AppNotification.fromMap(it) }
+        var changed = false
+        val updated = current.map {
+            if (it.type == type && it.itemId == itemId) { changed = true; it.copy(title = title, body = body) } else it
+        }
+        if (changed) notifRef(orgId, uid).setValue(updated.map { it.toMap() }).await()
     }
 
     /** Someone in my Circle assigned me a habit — see AssignmentRepository.assignHabit(). */

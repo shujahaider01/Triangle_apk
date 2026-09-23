@@ -64,7 +64,7 @@ import coil.compose.AsyncImage
 import androidx.compose.runtime.LaunchedEffect
 import com.triangle.app.data.HabitPalette
 import com.triangle.app.data.SessionStore
-import com.triangle.app.data.TaskNoteRepository
+import com.triangle.app.ui.components.rememberDriveImageUploader
 import com.triangle.app.data.TaskRepository
 import com.triangle.app.data.UserRepository
 import com.triangle.app.data.models.Task
@@ -90,10 +90,14 @@ fun TaskDetailScreen(
     task: Task,
     canEdit: Boolean,
     onEdit: () -> Unit,
+    onDelete: () -> Unit,
+    onArchive: () -> Unit,
     onAddNote: () -> Unit,
     onBack: () -> Unit,
     highlightOnOpen: Boolean = false
 ) {
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+    var showArchiveConfirm by remember { mutableStateOf(false) }
     val state by viewModel.uiState.collectAsState()
     val done = viewModel.isDone(task, state.completions)
     val color = runCatching { Color(android.graphics.Color.parseColor(task.iconColor ?: HabitPalette.DEFAULT_COLOR)) }
@@ -134,10 +138,11 @@ fun TaskDetailScreen(
     }
     val cameraLauncher = rememberCameraCaptureLauncher { bmp -> rawPhotoForCrop = bmp }
 
+    val driveUploader = rememberDriveImageUploader()
     fun uploadPhotoNote(bmp: Bitmap) {
         scope.launch {
             runCatching {
-                val url = TaskNoteRepository.uploadNotePhoto(session.orgId, session.uid, task.id, bmp)
+                val url = driveUploader.upload(bmp, "TriangleTaskNote_${task.id}_${System.currentTimeMillis()}.jpg")
                 TaskRepository.addNote(
                     session.orgId, task.id,
                     TaskNote(type = "photo", content = url, userId = session.uid, userName = session.name, role = session.role, timestamp = System.currentTimeMillis())
@@ -197,7 +202,14 @@ fun TaskDetailScreen(
                         }
                     },
                     onBack = onBack,
-                    onEdit = if (canEdit) onEdit else null
+                    menuOptions = buildList {
+                        if (canEdit) {
+                            add(DetailMenuOption("Edit", onClick = onEdit))
+                            add(DetailMenuOption("Delete", destructive = true, onClick = { showDeleteConfirm = true }))
+                        } else {
+                            add(DetailMenuOption("Archive", onClick = { showArchiveConfirm = true }))
+                        }
+                    }
                 )
             }
             Column(
@@ -283,6 +295,26 @@ fun TaskDetailScreen(
         }
 
         DetailStickyHeader(title = task.title, visible = scrollProgress >= 1f, onBack = onBack)
+    }
+
+    if (showDeleteConfirm) {
+        ConfirmDialog(
+            title = "Delete this task?",
+            body = "This can't be undone.",
+            confirmLabel = "Delete",
+            destructive = true,
+            onConfirm = { showDeleteConfirm = false; onDelete(); onBack() },
+            onDismiss = { showDeleteConfirm = false }
+        )
+    }
+    if (showArchiveConfirm) {
+        ConfirmDialog(
+            title = "Archive this task?",
+            body = "It'll be hidden from your lists. You can find it later under Settings > Archived Items.",
+            confirmLabel = "Archive",
+            onConfirm = { showArchiveConfirm = false; onArchive(); onBack() },
+            onDismiss = { showArchiveConfirm = false }
+        )
     }
 
     if (showPhotoSheet) {

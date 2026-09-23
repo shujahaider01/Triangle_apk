@@ -26,7 +26,9 @@ import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.EmojiEvents
+import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.EventAvailable
 import androidx.compose.material.icons.outlined.RateReview
 import androidx.compose.material.icons.outlined.SentimentSatisfied
@@ -39,6 +41,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -107,8 +112,10 @@ fun DashboardScreen(
     onOpenDm: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenLeaderboard: () -> Unit,
-    onOpenCircle: () -> Unit
+    onOpenCircle: () -> Unit,
+    onOpenArchive: () -> Unit
 ) {
+    var menuOpen by remember { mutableStateOf(false) }
     val viewModel: DashboardViewModel = viewModel(
         factory = viewModelFactory { initializer { DashboardViewModel(session) } }
     )
@@ -117,6 +124,7 @@ fun DashboardScreen(
     val context = LocalContext.current
     val tasksNavPane by TasksHabitsUiPrefs.lastActivePaneFlow(context.applicationContext, session.uid).collectAsState(initial = 0)
 
+    Box(Modifier.fillMaxSize()) {
     Scaffold(
         bottomBar = {
             AppBottomNav(
@@ -137,9 +145,26 @@ fun DashboardScreen(
                 state.error != null -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
                     Text(state.error ?: "Something went wrong", color = MaterialTheme.colorScheme.error)
                 }
-                else -> DashboardContent(state, padding, dark, onOpenNotifications, onOpenDm, onOpenSettings, onOpenLeaderboard, onOpenCircle)
+                else -> DashboardContent(state, padding, dark, onOpenNotifications, onOpenDm, { menuOpen = true }, onOpenLeaderboard, onOpenCircle)
             }
         }
+    }
+    SideMenu(open = menuOpen, onClose = { menuOpen = false }, onConnections = onOpenCircle, onSettings = onOpenSettings, onArchive = onOpenArchive)
+    }
+}
+
+/** Soft circular icon button used for the header's bell and chat actions. */
+@Composable
+private fun HeaderIconButton(icon: ImageVector, description: String, dark: Boolean, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .size(42.dp)
+            .clip(CircleShape)
+            .background(if (dark) Color.White.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.75f))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(icon, contentDescription = description, modifier = Modifier.size(22.dp))
     }
 }
 
@@ -164,16 +189,13 @@ private fun DashboardContent(
     ) {
         // ── Minimal header: hamburger + Circle + notif bell + DM icon ──
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp).padding(end = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onOpenSettings) {
                 Icon(Icons.Default.Menu, contentDescription = "Menu")
             }
             Spacer(Modifier.weight(1f))
-            IconButton(onClick = onOpenCircle) {
-                Icon(Icons.Default.People, contentDescription = "My Circle")
-            }
             androidx.compose.material3.BadgedBox(badge = {
                 if (com.triangle.app.data.FeatureFlags.isEnabled(com.triangle.app.data.FeatureFlag.NOTIFICATION_BADGE_ENABLED) && state.unreadNotifCount > 0) {
                     androidx.compose.material3.Badge(
@@ -182,20 +204,17 @@ private fun DashboardContent(
                         // inside it, so the default position sits
                         // noticeably further from the bell than it looks
                         // like it should — pull it in toward the icon.
-                        modifier = Modifier.offset(x = (-10).dp, y = 6.dp)
+                        modifier = Modifier.offset(x = (-4).dp, y = 4.dp)
                     ) {
                         Text(if (state.unreadNotifCount > 9) "9+" else state.unreadNotifCount.toString())
                     }
                 }
             }) {
-                IconButton(onClick = onOpenNotifications) {
-                    Icon(Icons.Default.Notifications, contentDescription = "Notifications")
-                }
+                HeaderIconButton(Icons.Outlined.Notifications, "Notifications", dark, onOpenNotifications)
             }
             if (com.triangle.app.data.FeatureFlags.isEnabled(com.triangle.app.data.FeatureFlag.DM_ENABLED)) {
-                IconButton(onClick = onOpenDm) {
-                    Icon(Icons.AutoMirrored.Filled.Article, contentDescription = "Messages")
-                }
+                Spacer(Modifier.width(10.dp))
+                HeaderIconButton(Icons.Outlined.ChatBubbleOutline, "Messages", dark, onOpenDm)
             }
         }
 
@@ -318,7 +337,7 @@ private fun DashboardContent(
             }
 
             Spacer(Modifier.height(18.dp))
-            Text("Analytics", fontSize = 17.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onBackground)
+            Text("Analytics", fontSize = 17.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onBackground, modifier = Modifier.padding(horizontal = 14.dp))
             Spacer(Modifier.height(10.dp))
 
             val cards = listOf(
@@ -334,15 +353,15 @@ private fun DashboardContent(
             // so it can never under-measure its own height and clip the
             // last row the way a LazyVerticalGrid with a guessed fixed
             // height did.
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(Modifier.padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
                 cards.chunked(2).forEach { rowCards ->
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(13.dp)) {
                         rowCards.forEach { card ->
                             val cardBg = if (dark) CardBgDark else null
                             Column(
                                 modifier = Modifier
                                     .weight(1f)
-                                    .aspectRatio(2.2f)
+                                    .aspectRatio(1.96f)
                                     .clip(RoundedCornerShape(16.dp))
                                     .background(if (cardBg != null) Brush.linearGradient(listOf(cardBg, cardBg)) else Brush.linearGradient(card.gradient))
                                     .padding(14.dp, 12.dp, 14.dp, 12.dp),

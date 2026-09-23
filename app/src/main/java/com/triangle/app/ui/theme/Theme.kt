@@ -23,6 +23,7 @@ val TriangleOrangeDark = Color(0xFFC24710)
 // duplicating the hex literal.
 val TriangleBrandPurple = Color(0xFF6D5EF5)
 val TriangleBrandPurpleLight = Color(0xFF8B7CF6)
+val TriangleBrandPurpleDark = Color(0xFF5648D6)
 
 // The same [data-page="internDashboard"]/[data-page="internTasks"] page-background
 // gradient (orange -> pink -> purple -> blue) both Dashboard and Tasks/Habits sit
@@ -39,17 +40,17 @@ val TriangleText2Light = Color(0xFF6B7280)
 val TriangleText2Dark = Color(0xFF8B92A5)
 
 private val LightColors = lightColorScheme(
-    primary = TriangleOrange,
+    primary = TriangleBrandPurple,
     onPrimary = Color.White,
-    secondary = TriangleOrangeDark,
+    secondary = TriangleBrandPurpleDark,
     background = Color(0xFFFAFAFA),
     surface = Color.White
 )
 
 private val DarkColors = darkColorScheme(
-    primary = TriangleOrange,
+    primary = TriangleBrandPurple,
     onPrimary = Color.White,
-    secondary = TriangleOrangeDark,
+    secondary = TriangleBrandPurpleDark,
     background = Color(0xFF1A1D23),
     surface = Color(0xFF20242C)
 )

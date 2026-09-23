@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.AlternateEmail
 import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -80,6 +81,7 @@ fun SettingsScreen(
     onOpenNotifications: () -> Unit,
     onOpenChangePassword: () -> Unit,
     onOpenBackupRestore: () -> Unit,
+    onOpenArchivedItems: () -> Unit,
     onSignedOut: () -> Unit,
     onBack: () -> Unit
 ) {
@@ -111,6 +113,7 @@ fun SettingsScreen(
             Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(surface2)) {
                 SettingsRow(Icons.Default.Notifications, "Notifications", text2, onClick = onOpenNotifications)
                 SettingsRow(Icons.Default.Lock, "Change Password", text2, onClick = onOpenChangePassword)
+                SettingsRow(Icons.Default.Inventory2, "Archived Items", text2, onClick = onOpenArchivedItems)
                 SettingsRow(Icons.Default.CloudSync, "Backup & Restore", text2, onClick = onOpenBackupRestore)
             }
 

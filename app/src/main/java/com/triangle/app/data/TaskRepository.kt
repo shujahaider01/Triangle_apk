@@ -128,7 +128,7 @@ object TaskRepository {
 
     /**
      * Prepends a new note (text or photo) to the task's `notes` timeline —
-     * see TaskNoteRepository for the photo-upload step that produces a
+     * see ui/components/DriveImageUploader for the photo-upload step that produces a
      * `content` URL before this is called for a photo note. Same
      * read-modify-write-the-whole-array pattern as every other task
      * mutation here (tasks are array-shaped in Firebase, not a new
@@ -152,6 +152,12 @@ object TaskRepository {
 
     private suspend fun readTasks(orgId: String): List<Task> =
         anyToMapList(orgData(orgId).child("tasks").get().await().value).mapNotNull { Task.fromMap(it) }
+
+    /** One-shot read of a single task — used by ReminderAlarmReceiver to re-validate before showing a notification. */
+    suspend fun getTask(orgId: String, taskId: String): Task? = readTasks(orgId).find { it.id == taskId }
+
+    /** All tasks for an org, one-shot — used by ReminderScheduler.rescheduleAll (boot re-arm). */
+    suspend fun getAllTasks(orgId: String): List<Task> = readTasks(orgId)
 
     /** Materializes today's (and any missed) instance(s) of every repeat template — see RepeatTaskEngine. */
     suspend fun materializeRepeatingTasks(orgId: String) {

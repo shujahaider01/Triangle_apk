@@ -19,6 +19,10 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -39,7 +43,8 @@ import com.triangle.app.data.HabitPalette
  * toggle chrome here — just what the task/habit says plus who it went to.
  */
 @Composable
-fun AssignedTaskDetailScreen(group: AssignmentRepository.AssignedTaskGroup, onBack: () -> Unit) {
+fun AssignedTaskDetailScreen(group: AssignmentRepository.AssignedTaskGroup, onDelete: () -> Unit, onBack: () -> Unit) {
+    var showDeleteConfirm by remember { mutableStateOf(false) }
     val task = group.task
     val color = runCatching { Color(android.graphics.Color.parseColor(task.iconColor ?: HabitPalette.DEFAULT_COLOR)) }
         .getOrDefault(MaterialTheme.colorScheme.primary)
@@ -55,7 +60,8 @@ fun AssignedTaskDetailScreen(group: AssignmentRepository.AssignedTaskGroup, onBa
                 pillIcon = Icons.Default.Star,
                 pillText = if (task.points > 0) "${task.points} XP" else "—",
                 actions = emptyList(),
-                onBack = onBack
+                onBack = onBack,
+                menuOptions = listOf(DetailMenuOption("Delete", destructive = true, onClick = { showDeleteConfirm = true }))
             )
             Column(
                 Modifier
@@ -94,11 +100,23 @@ fun AssignedTaskDetailScreen(group: AssignmentRepository.AssignedTaskGroup, onBa
             }
         }
     }
+
+    if (showDeleteConfirm) {
+        ConfirmDialog(
+            title = "Delete this task?",
+            body = "This removes it for you and every recipient. This can't be undone.",
+            confirmLabel = "Delete",
+            destructive = true,
+            onConfirm = { showDeleteConfirm = false; onDelete() },
+            onDismiss = { showDeleteConfirm = false }
+        )
+    }
 }
 
 /** Same idea as AssignedTaskDetailScreen, for a habit — see its doc comment. */
 @Composable
-fun AssignedHabitDetailScreen(group: AssignmentRepository.AssignedHabitGroup, dateStr: String, onBack: () -> Unit) {
+fun AssignedHabitDetailScreen(group: AssignmentRepository.AssignedHabitGroup, dateStr: String, onDelete: () -> Unit, onBack: () -> Unit) {
+    var showDeleteConfirm by remember { mutableStateOf(false) }
     val habit = group.habit
     val color = runCatching { Color(android.graphics.Color.parseColor(habit.color)) }.getOrDefault(MaterialTheme.colorScheme.primary)
     val svg = habit.iconSvg ?: HabitPalette.ICONS.getValue(HabitPalette.DEFAULT_ICON_KEY)
@@ -114,7 +132,8 @@ fun AssignedHabitDetailScreen(group: AssignmentRepository.AssignedHabitGroup, da
                 pillIcon = Icons.Default.Star,
                 pillText = "${habit.xpPerCompletion} XP",
                 actions = emptyList(),
-                onBack = onBack
+                onBack = onBack,
+                menuOptions = listOf(DetailMenuOption("Delete", destructive = true, onClick = { showDeleteConfirm = true }))
             )
             Column(
                 Modifier
@@ -152,5 +171,16 @@ fun AssignedHabitDetailScreen(group: AssignmentRepository.AssignedHabitGroup, da
                 Spacer(Modifier.height(40.dp))
             }
         }
+    }
+
+    if (showDeleteConfirm) {
+        ConfirmDialog(
+            title = "Delete this habit?",
+            body = "This removes it for you and every recipient. This can't be undone.",
+            confirmLabel = "Delete",
+            destructive = true,
+            onConfirm = { showDeleteConfirm = false; onDelete() },
+            onDismiss = { showDeleteConfirm = false }
+        )
     }
 }
