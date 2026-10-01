@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Status-bar notification icon: Android renders small icons as a flat
+     white silhouette (alpha only), so this is the triangle OUTLINE with
+     three dots inside — the interior stays transparent. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.8"
+        android:strokeLineJoin="round"
+        android:pathData="M12,3.5 L21.5,20 L2.5,20 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M12,10.1m-2,0a2,2 0,1 1,4 0a2,2 0,1 1,-4 0" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M8.2,16.7m-2,0a2,2 0,1 1,4 0a2,2 0,1 1,-4 0" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M15.8,16.7m-2,0a2,2 0,1 1,4 0a2,2 0,1 1,-4 0" />
+</vector>

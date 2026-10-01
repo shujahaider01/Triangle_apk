@@ -1,5 +1,8 @@
 package com.triangle.app.notifications
 
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -22,16 +25,41 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import coil.compose.AsyncImage
+import com.triangle.app.announcements.AnnouncementCard
+import com.triangle.app.announcements.TitleColorPicker
+import com.triangle.app.data.AnnouncementRepository
+import com.triangle.app.data.HighlightBus
+import com.triangle.app.data.HighlightKind
+import com.triangle.app.data.models.Announcement
+import com.triangle.app.tasks.ConfirmDialog
+import kotlinx.coroutines.delay
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PersonAddAlt1
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -40,6 +68,11 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import com.triangle.app.data.FeatureFlag
+import com.triangle.app.data.FeatureFlags
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -58,13 +91,17 @@ private data class NotifMeta(val icon: ImageVector, val label: String, val color
 private val NotifTypes = mapOf(
     "task_assigned" to NotifMeta(Icons.AutoMirrored.Filled.Assignment, "Task Assigned", Color(0xFF3B82F6)),
     "task_completed" to NotifMeta(Icons.Filled.CheckCircle, "Task Completed", Color(0xFF22C55E)),
+    "review_received" to NotifMeta(Icons.Filled.Star, "New Review", Color(0xFFF5A623)),
     "habit_assigned" to NotifMeta(Icons.Filled.Repeat, "Habit Assigned", Color(0xFFF59E0B)),
     "habit_completed" to NotifMeta(Icons.Filled.Repeat, "Habit Completed", Color(0xFFF59E0B)),
     "post_created" to NotifMeta(Icons.AutoMirrored.Filled.Article, "New Post", Color(0xFF6366F1)),
     "chat_message" to NotifMeta(Icons.AutoMirrored.Filled.Chat, "New Message", Color(0xFF14B8A6)),
     "task_shared" to NotifMeta(Icons.Filled.Share, "Task Shared", Color(0xFFE85D26)),
     "connection_request" to NotifMeta(Icons.Filled.PersonAddAlt1, "Connection Request", Color(0xFF8B5CF6)),
-    "connection_accepted" to NotifMeta(Icons.Filled.Groups, "Connection Accepted", Color(0xFF22C55E))
+    "connection_accepted" to NotifMeta(Icons.Filled.Groups, "Connection Accepted", Color(0xFF22C55E)),
+    "announcement" to NotifMeta(Icons.Filled.Campaign, "Announcement", Color(0xFFE85D26)),
+    "poll" to NotifMeta(Icons.Filled.BarChart, "Poll", Color(0xFF6C5CE7)),
+    "rank_change" to NotifMeta(Icons.Filled.EmojiEvents, "Leaderboard", Color(0xFFF5B942))
 )
 private val DefaultNotifMeta = NotifMeta(Icons.Filled.Notifications, "Notification", Color(0xFF6C5CE7))
 private fun notifMeta(type: String) = NotifTypes[type] ?: DefaultNotifMeta
@@ -83,35 +120,55 @@ private fun notifMeta(type: String) = NotifTypes[type] ?: DefaultNotifMeta
 @Composable
 fun NotificationsScreen(
     viewModel: NotificationsViewModel,
-    onOpenDmThread: (otherUserId: String) -> Unit,
-    onOpenTaskDetail: (taskId: String) -> Unit,
-    onOpenHabitDetail: (habitId: String) -> Unit,
+    onOpenDmThread: (otherUserId: String, messageId: String?) -> Unit,
+    onOpenTaskDetail: (taskId: String?, body: String) -> Unit,
+    onOpenHabitDetail: (habitId: String?, body: String) -> Unit,
     onOpenTasks: () -> Unit,
+    onOpenReview: (taskId: String, recipientUid: String) -> Unit,
+    onOpenReviews: () -> Unit,
+    onOpenLeaderboard: () -> Unit,
     onOpenCircle: () -> Unit,
+    onOpenInbox: (announcementId: String?) -> Unit,
     onBack: () -> Unit
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val state by viewModel.uiState.collectAsState()
     val palette = notificationsPalette()
     val unreadCount = state.notifications.count { !it.read }
 
+    val listState = rememberLazyListState()
+
     fun handleTap(n: AppNotification) {
         viewModel.markRead(n.id)
         when (n.type) {
-            "chat_message" -> n.otherUserId?.let(onOpenDmThread)
-            // Jump straight to the specific task/habit (and let its detail
-            // screen's one-time highlight make clear which one it is)
-            // instead of just landing on the generic Tasks tab — falls back
-            // to the tab for notifications pushed before itemId existed.
-            "task_assigned" -> n.itemId?.let(onOpenTaskDetail) ?: onOpenTasks()
-            "habit_assigned" -> n.itemId?.let(onOpenHabitDetail) ?: onOpenTasks()
-            "task_shared", "task_completed", "habit_completed" -> onOpenTasks()
+            "chat_message" -> n.otherUserId?.let { onOpenDmThread(it, n.itemId) }
+            // Jump straight to the specific task/habit (highlighted in the list) instead of just
+            // landing on the generic Tasks tab — falls back to matching by the name in the text
+            // for notifications pushed before itemId existed.
+            "task_assigned" -> onOpenTaskDetail(n.itemId, n.body)
+            "habit_assigned" -> onOpenHabitDetail(n.itemId, n.body)
+            "task_completed" -> {
+                val taskId = n.itemId
+                val who = n.otherUserId
+                if (taskId != null && who != null) onOpenReview(taskId, who) else onOpenTasks()
+            }
+            "review_received" -> onOpenReviews()
+            "rank_change" -> onOpenLeaderboard()
+            "task_shared", "habit_completed" -> onOpenTasks()
             // connection_request no longer navigates away — it gets inline
             // Accept/Decline buttons right on the row (see NotifRow) instead
             // of hiding them behind a tap into ConnectionRequestsScreen.
+            "announcement", "poll" -> onOpenInbox(n.itemId)
             "connection_accepted" -> onOpenCircle()
             else -> Unit
         }
     }
+
+    // One chronological list of notification rows. An announcement is just a one-line
+    // "New Inbox: “Title”" row here — its full card lives in the Inbox (see InboxScreen).
+    val feed = remember(state.notifications) { state.notifications.map { FeedItem.Note(it) } }
+    val rows = remember(feed) { groupByDate(feed).flatMap { (label, items) -> listOf<FeedRow>(FeedRow.Header(label)) + items.map { FeedRow.Entry(it) } } }
+    val paging = com.triangle.app.ui.components.rememberLazyPaging(listState, rows.size, 15)
 
     Scaffold(
         topBar = {
@@ -126,7 +183,7 @@ fun NotificationsScreen(
             )
         }
     ) { padding ->
-        if (state.notifications.isEmpty()) {
+        if (rows.isEmpty()) {
             Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(Icons.Filled.Notifications, contentDescription = null, tint = palette.text3, modifier = Modifier.size(44.dp))
@@ -135,34 +192,56 @@ fun NotificationsScreen(
                 }
             }
         } else {
-            val groups = groupByDate(state.notifications)
-            LazyColumn(Modifier.fillMaxSize().padding(padding).padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                groups.forEach { (label, items) ->
-                    item {
-                        Text(label, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = palette.text3, modifier = Modifier.padding(top = 10.dp, bottom = 6.dp))
-                    }
-                    items(items, key = { it.id }) { n ->
-                        val isPendingConnection = n.type == "connection_request" && n.otherUserId in state.pendingConnectionUids
-                        NotifRow(
-                            n,
-                            palette,
-                            onClick = { handleTap(n) },
-                            isPendingConnection = isPendingConnection,
-                            onAccept = {
-                                n.otherUserId?.let(viewModel::acceptConnectionRequest)
-                                viewModel.markRead(n.id)
-                            },
-                            onDecline = {
-                                n.otherUserId?.let(viewModel::declineConnectionRequest)
-                                viewModel.markRead(n.id)
+            LazyColumn(
+                Modifier.fillMaxSize().padding(padding).padding(16.dp),
+                state = listState,
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                items(rows.take(paging.visible), key = { row -> when (row) { is FeedRow.Header -> "h-${row.label}"; is FeedRow.Entry -> row.item.key } }) { row ->
+                    when (row) {
+                        is FeedRow.Header -> Text(row.label, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = palette.text3, modifier = Modifier.padding(top = 10.dp, bottom = 6.dp))
+                        is FeedRow.Entry -> when (val item = row.item) {
+                            is FeedItem.Note -> {
+                                val n = item.n
+                                val isPendingConnection = n.type == "connection_request" && n.otherUserId in state.pendingConnectionUids
+                                NotifRow(
+                                    n,
+                                    palette,
+                                    onClick = { handleTap(n) },
+                                    isPendingConnection = isPendingConnection,
+                                    onAccept = {
+                                        n.otherUserId?.let(viewModel::acceptConnectionRequest)
+                                        viewModel.markRead(n.id)
+                                    },
+                                    onDecline = {
+                                        n.otherUserId?.let(viewModel::declineConnectionRequest)
+                                        viewModel.markRead(n.id)
+                                    }
+                                )
                             }
-                        )
+                        }
                     }
                 }
-                item { Spacer(Modifier.height(16.dp)) }
+                if (paging.hasMore) item(key = "load-more") { com.triangle.app.ui.components.LoadMoreFooter() }
+                item { Spacer(Modifier.height(72.dp)) } // clear the + button
             }
         }
     }
+}
+
+private sealed interface FeedItem {
+    val key: String
+    val createdAt: Long
+
+    data class Note(val n: AppNotification) : FeedItem {
+        override val key get() = "n-${n.id}"
+        override val createdAt get() = n.createdAt
+    }
+}
+
+private sealed interface FeedRow {
+    data class Header(val label: String) : FeedRow
+    data class Entry(val item: FeedItem) : FeedRow
 }
 
 @Composable
@@ -189,17 +268,22 @@ private fun NotifRow(
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text(n.title.ifBlank { meta.label }, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = palette.text, maxLines = 1)
-                if (n.body.isNotBlank()) {
+                val isAnnouncement = n.type == "announcement" || n.type == "poll"
+                val shownTitle = if (isAnnouncement) inboxRowTitle(n.title, n.type) else n.title.ifBlank { meta.label }
+                Text(shownTitle, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = palette.text, maxLines = 1)
+                if (n.body.isNotBlank() && n.type != "announcement" && n.type != "poll") {
                     Spacer(Modifier.height(2.dp))
                     Text(n.body, fontSize = 12.sp, color = palette.text2, maxLines = 2)
                 }
-                Spacer(Modifier.height(2.dp))
-                Text(formatTime(n.createdAt), fontSize = 10.5.sp, color = palette.text3)
             }
-            if (!n.read) {
-                Spacer(Modifier.width(6.dp))
-                Box(Modifier.size(8.dp).clip(CircleShape).background(meta.color))
+            // Time sits at the right, vertically centred on the row, instead of taking its own line.
+            Spacer(Modifier.width(8.dp))
+            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.Center) {
+                Text(formatTime(n.createdAt), fontSize = 11.sp, color = palette.text3, maxLines = 1)
+                if (!n.read) {
+                    Spacer(Modifier.height(5.dp))
+                    Box(Modifier.size(8.dp).clip(CircleShape).background(meta.color))
+                }
             }
         }
         // Shown directly on the row instead of behind a tap-through to a
@@ -214,13 +298,13 @@ private fun NotifRow(
     }
 }
 
-private fun groupByDate(notifications: List<AppNotification>): List<Pair<String, List<AppNotification>>> {
-    val sorted = notifications.sortedByDescending { it.createdAt }
+private fun groupByDate(feed: List<FeedItem>): List<Pair<String, List<FeedItem>>> {
+    val sorted = feed.sortedByDescending { it.createdAt }
     val today = SimpleDateFormat("yyyyMMdd", Locale.US).format(Date())
     val yesterday = SimpleDateFormat("yyyyMMdd", Locale.US).format(Date(System.currentTimeMillis() - 86_400_000L))
     val dayFmt = SimpleDateFormat("yyyyMMdd", Locale.US)
     val labelFmt = SimpleDateFormat("MMMM d, yyyy", Locale.US)
-    val groups = LinkedHashMap<String, MutableList<AppNotification>>()
+    val groups = LinkedHashMap<String, MutableList<FeedItem>>()
     sorted.forEach { n ->
         val day = dayFmt.format(Date(n.createdAt))
         val label = when (day) {
@@ -237,3 +321,9 @@ private fun formatTime(timestamp: Long): String {
     if (timestamp <= 0L) return ""
     return SimpleDateFormat("h:mm a", Locale.US).format(Date(timestamp))
 }
+
+/** One-line label for an announcement notification; handles rows saved with or without the "New Inbox" prefix. */
+private fun inboxRowTitle(raw: String, type: String): String =
+    if (raw.startsWith("New Inbox") || raw.startsWith("New Poll")) raw
+    else if (type == "poll") "New Poll: “${raw.trim()}”"
+    else "New Inbox: “${raw.trim()}”"

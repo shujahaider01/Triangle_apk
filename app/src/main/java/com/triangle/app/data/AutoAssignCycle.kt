@@ -16,7 +16,7 @@ object AutoAssignCycle {
     data class Pick(val color: String, val iconKey: String, val iconSvg: String)
 
     private fun ref(orgId: String) =
-        FirebaseDatabase.getInstance(TriangleConfig.FIREBASE_URL).getReference("organizations/$orgId/data/autoAssignCycle")
+        FirebaseDatabase.getInstance().getReference("organizations/$orgId/data/autoAssignCycle")
 
     /** Returns the next color+icon in the rotation and advances (and best-effort persists) it. */
     suspend fun next(orgId: String): Pick {

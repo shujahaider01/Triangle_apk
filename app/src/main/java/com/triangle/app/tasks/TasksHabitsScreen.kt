@@ -14,24 +14,30 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Assignment
+import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Work
@@ -44,16 +50,24 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.mutableIntStateOf
+import com.triangle.app.ui.components.ConfettiOverlay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -70,6 +84,10 @@ import androidx.activity.compose.BackHandler
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import com.triangle.app.data.AssignmentRepository
+import com.triangle.app.data.HighlightBus
+import com.triangle.app.data.HighlightKind
+import com.triangle.app.ui.components.deepLinkHighlight
+import kotlinx.coroutines.delay
 import com.triangle.app.navigation.AppBottomNav
 import com.triangle.app.navigation.BottomNavTab
 import com.triangle.app.ui.theme.TriangleBrandPurple
@@ -98,6 +116,34 @@ fun TasksHabitsScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val dark = triangleDarkTheme()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val snackbarScope = rememberCoroutineScope()
+    var confettiTrigger by remember { mutableIntStateOf(0) }
+    fun showTaskCompletedUndo(task: com.triangle.app.data.models.Task) {
+        confettiTrigger++
+        com.triangle.app.ui.components.CompletionSounds.playTask()
+        snackbarScope.launch {
+            delay(1700)
+            val result = snackbarHostState.showSnackbar("Task completed", actionLabel = "Undo", duration = SnackbarDuration.Short)
+            if (result == SnackbarResult.ActionPerformed) viewModel.undoComplete(task)
+        }
+    }
+    fun showHabitCompletedUndo(habit: com.triangle.app.data.models.Habit) {
+        confettiTrigger++
+        com.triangle.app.ui.components.CompletionSounds.playHabit()
+        snackbarScope.launch {
+            delay(1700)
+            val result = snackbarHostState.showSnackbar("Habit completed", actionLabel = "Undo", duration = SnackbarDuration.Short)
+            if (result == SnackbarResult.ActionPerformed) viewModel.undoHabitComplete(habit)
+        }
+    }
+
+    // Scroll state of whichever pane's LazyColumn is currently active —
+    // drives the filter/body divider below, which should only appear once
+    // the list has actually scrolled away from its top (see that divider's
+    // own comment for why).
+    val tasksListState = rememberLazyListState()
+    val habitsListState = rememberLazyListState()
 
     // Which pane (Tasks vs Habits) to open on is resolved asynchronously
     // (see TasksHabitsViewModel.initialPane's doc comment — it depends on a
@@ -121,6 +167,49 @@ fun TasksHabitsScreen(
         snapshotFlow { pagerState.settledPage }.collect { viewModel.setActivePane(it) }
     }
 
+    // A notification tap asked to reveal + highlight one task/habit (see HighlightBus).
+    // Phase 1 puts the list in a state where the item is visible (its date/mode, no
+    // narrowing filters) — retried as data loads; phase 2 scrolls to the row and lights it.
+    val highlightReq by HighlightBus.request.collectAsState()
+    val loadedTasks by viewModel.tasks.collectAsState()
+    val loadedHabits by viewModel.habits.collectAsState()
+    val itemReq = highlightReq?.takeIf { it.kind == HighlightKind.TASK || it.kind == HighlightKind.HABIT }
+    var targetId by remember(itemReq) { mutableStateOf<String?>(null) }
+    var highlightedId by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(itemReq, loadedTasks, loadedHabits) {
+        val req = itemReq ?: return@LaunchedEffect
+        if (targetId != null) return@LaunchedEffect
+        // Old notifications carry no item id — fall back to the newest item with that name.
+        val id = req.itemId.ifBlank {
+            if (req.kind == HighlightKind.TASK) loadedTasks.filter { it.title == req.title }.maxByOrNull { it.createdAt }?.id
+            else loadedHabits.filter { it.name == req.title }.maxByOrNull { it.createdAt }?.id
+        } ?: return@LaunchedEffect
+        val ok = if (req.kind == HighlightKind.TASK) viewModel.revealTask(id) else viewModel.revealHabit(id)
+        if (ok) targetId = id
+    }
+    LaunchedEffect(itemReq) {
+        val req = itemReq ?: return@LaunchedEffect
+        delay(8000)
+        if (targetId == null) HighlightBus.clear(req) // never appeared (deleted/archived) — stop waiting
+    }
+    LaunchedEffect(itemReq, targetId, state.visibleTasks, state.visibleHabits) {
+        val req = itemReq ?: return@LaunchedEffect
+        val id = targetId ?: return@LaunchedEffect
+        val isTask = req.kind == HighlightKind.TASK
+        val index = if (isTask) {
+            state.visibleTasks.indexOfFirst { (it is TaskRow.Own && it.task.id == id) || (it is TaskRow.Assigned && it.group.itemId == id) }
+        } else {
+            state.visibleHabits.indexOfFirst { (it is HabitRow.Own && it.habit.id == id) || (it is HabitRow.Assigned && it.group.itemId == id) }
+        }
+        if (index < 0) return@LaunchedEffect
+        pagerState.scrollToPage(if (isTask) 0 else 1)
+        (if (isTask) tasksListState else habitsListState).animateScrollToItem(index)
+        highlightedId = id
+        delay(3000)
+        highlightedId = null
+        HighlightBus.clear(req)
+    }
+
     // Assigned-out rows are a one-shot join against every recipient's org
     // (see AssignmentRepository.readAssignedGroups) rather than a live
     // subscription, so a recipient completing their copy only shows up
@@ -140,25 +229,73 @@ fun TasksHabitsScreen(
     var assignedTaskDetail by remember { mutableStateOf<AssignmentRepository.AssignedTaskGroup?>(null) }
     var assignedHabitDetail by remember { mutableStateOf<AssignmentRepository.AssignedHabitGroup?>(null) }
     var assignedHabitAnalytics by remember { mutableStateOf<AssignmentRepository.AssignedHabitGroup?>(null) }
+    var analyticsPerson by remember { mutableStateOf<String?>(null) }
+    var analyticsPickerGroup by remember { mutableStateOf<AssignmentRepository.AssignedHabitGroup?>(null) }
+    var editingAssignedTask by remember { mutableStateOf<AssignmentRepository.AssignedTaskGroup?>(null) }
+    var editingAssignedHabit by remember { mutableStateOf<AssignmentRepository.AssignedHabitGroup?>(null) }
     var showFilterSheet by remember { mutableStateOf(false) }
+    BackHandler(enabled = editingAssignedTask != null) { editingAssignedTask = null }
+    BackHandler(enabled = editingAssignedHabit != null) { editingAssignedHabit = null }
     BackHandler(enabled = assignedTaskDetail != null) { assignedTaskDetail = null }
     BackHandler(enabled = assignedHabitDetail != null) { assignedHabitDetail = null }
     BackHandler(enabled = assignedHabitAnalytics != null) { assignedHabitAnalytics = null }
     BackHandler(enabled = showFilterSheet) { showFilterSheet = false }
+    editingAssignedTask?.let { group ->
+        CreateEditTaskScreen(
+            session = viewModel.sessionInfo, viewModel = viewModel, existingTask = group.task, assignerEdit = true,
+            onSaved = { editingAssignedTask = null; assignedTaskDetail = null },
+            onDeleted = { editingAssignedTask = null },
+            onBack = { editingAssignedTask = null }
+        )
+        return
+    }
+    editingAssignedHabit?.let { group ->
+        CreateEditHabitScreen(
+            session = viewModel.sessionInfo, viewModel = viewModel, existingHabit = group.habit, assignerEdit = true,
+            onSaved = { editingAssignedHabit = null; assignedHabitDetail = null },
+            onDeleted = { editingAssignedHabit = null },
+            onBack = { editingAssignedHabit = null }
+        )
+        return
+    }
     assignedTaskDetail?.let { group ->
-        AssignedTaskDetailScreen(group = group, onBack = { assignedTaskDetail = null })
+        AssignedTaskDetailScreen(
+            group = group,
+            onEdit = { editingAssignedTask = group },
+            onDelete = { viewModel.deleteTaskAssignment(group.itemId); assignedTaskDetail = null },
+            onBack = { assignedTaskDetail = null }
+        )
         return
     }
     assignedHabitDetail?.let { group ->
-        AssignedHabitDetailScreen(group = group, dateStr = state.selectedDate.toString(), onBack = { assignedHabitDetail = null })
+        AssignedHabitDetailScreen(
+            group = group,
+            onEdit = { editingAssignedHabit = group },
+            dateStr = state.selectedDate.toString(),
+            onDelete = { viewModel.deleteHabitAssignment(group.itemId); assignedHabitDetail = null },
+            onBack = { assignedHabitDetail = null }
+        )
         return
     }
     assignedHabitAnalytics?.let { group ->
-        val merged = remember(group) {
-            group.members.fold(emptyMap<String, com.triangle.app.data.models.HabitCompletionEntry>()) { acc, member -> acc + member.completions }
+        val member = group.members.firstOrNull { it.uid == analyticsPerson } ?: group.members.firstOrNull()
+        if (member != null) {
+            HabitAnalyticsScreen(
+                habit = group.habit,
+                completions = member.completions,
+                onBack = { assignedHabitAnalytics = null }
+            )
+            return
         }
-        HabitAnalyticsScreen(habit = group.habit, completions = merged, onBack = { assignedHabitAnalytics = null })
-        return
+    }
+    // 2+ recipients: a panel over the list asks whose analytics to show first.
+    analyticsPickerGroup?.let { group ->
+        AssignedHabitPersonSheet(
+            habitName = group.habit.name,
+            members = group.members,
+            onPick = { analyticsPerson = it.uid; assignedHabitAnalytics = group; analyticsPickerGroup = null },
+            onDismiss = { analyticsPickerGroup = null }
+        )
     }
     // A full page rather than a bottom sheet, per the user's explicit request
     // — same local-overlay pattern as the other full-screen swaps above.
@@ -172,6 +309,7 @@ fun TasksHabitsScreen(
         return
     }
 
+    Box(Modifier.fillMaxSize()) {
     Scaffold(
         floatingActionButton = {
             FloatingActionButton(onClick = {
@@ -233,8 +371,22 @@ fun TasksHabitsScreen(
                 // list below — sits outside the HorizontalPager/LazyColumn so
                 // it never scrolls away, and shared by both Tasks and Habits
                 // since it's above the pager rather than inside either pane.
+                // Invisible at rest and only fades in once the active pane's
+                // list has actually scrolled away from its top — otherwise
+                // it just adds a visible line between two things (filter
+                // chips, first list item) that already read as separate.
+                val isPaneScrolled by remember {
+                    derivedStateOf {
+                        val activeState = if (pagerState.currentPage == 0) tasksListState else habitsListState
+                        activeState.firstVisibleItemIndex > 0 || activeState.firstVisibleItemScrollOffset > 0
+                    }
+                }
+                val dividerAlpha by animateFloatAsState(
+                    targetValue = if (isPaneScrolled) (if (dark) 0.14f else 0.09f) else 0f,
+                    label = "taskHabitDividerAlpha"
+                )
                 HorizontalDivider(
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (dark) 0.14f else 0.09f),
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = dividerAlpha),
                     thickness = 1.dp
                 )
 
@@ -247,27 +399,41 @@ fun TasksHabitsScreen(
                 // etc.) had to inflate mid-gesture, which is what made the
                 // Tasks<->Habits swipe itself feel less smooth than scrolling
                 // within either page.
-                HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize(), beyondViewportPageCount = 1) { page ->
+                HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize(), beyondViewportPageCount = 1, reverseLayout = true) /* Habits sits on the left, Tasks on the right */ { page ->
                     if (page == 0) {
                         TasksPane(
                             state = state,
                             viewModel = viewModel,
+                            listState = tasksListState,
                             onOpenDetail = onOpenTaskDetail,
-                            onOpenAssignedDetail = { assignedTaskDetail = it }
+                            onOpenAssignedDetail = { assignedTaskDetail = it },
+                            onTaskCompleted = ::showTaskCompletedUndo,
+                            highlightedId = highlightedId
                         )
                     } else {
                         HabitsPane(
                             state = state,
                             viewModel = viewModel,
+                            listState = habitsListState,
                             onOpenDetail = onOpenHabitDetail,
                             onOpenAnalytics = onOpenHabitAnalytics,
                             onOpenAssignedDetail = { assignedHabitDetail = it },
-                            onOpenAssignedAnalytics = { assignedHabitAnalytics = it }
+                            onOpenAssignedAnalytics = { g ->
+                                if (g.members.size >= 2) analyticsPickerGroup = g
+                                else { analyticsPerson = g.members.firstOrNull()?.uid; assignedHabitAnalytics = g }
+                            },
+                            onHabitCompleted = ::showHabitCompletedUndo,
+                            highlightedId = highlightedId
                         )
                     }
                 }
             }
+            ConfettiOverlay(confettiTrigger)
         }
+    }
+    // Above the Scaffold (so the nav bar can't cover it), low over the environment strip.
+    SnackbarHost(snackbarHostState, Modifier.align(Alignment.BottomCenter).padding(bottom = 60.dp))
+    state.streakUnlock?.let { StreakUnlockDialog(it, onDismiss = viewModel::dismissStreakUnlock) }
     }
 }
 
@@ -282,9 +448,13 @@ fun TasksHabitsScreen(
  */
 @Composable
 private fun DateHeader(state: TasksHabitsUiState, viewModel: TasksHabitsViewModel, activePage: Int, onOpenFilters: () -> Unit) {
+    var showRangePicker by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 24.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            val label = remember(state.selectedDate) { ordinalDateLabel(state.selectedDate) }
+            val label = remember(state.selectedDate, state.dateRange) {
+                val r = state.dateRange
+                if (r != null) rangeLabel(r) else ordinalDateLabel(state.selectedDate)
+            }
             Text(
                 buildAnnotatedString {
                     withStyle(SpanStyle(fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface)) {
@@ -295,7 +465,7 @@ private fun DateHeader(state: TasksHabitsUiState, viewModel: TasksHabitsViewMode
                     }
                 },
                 fontSize = 20.sp,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f).clickable { showRangePicker = true }
             )
             BadgedBox(
                 badge = {
@@ -306,14 +476,32 @@ private fun DateHeader(state: TasksHabitsUiState, viewModel: TasksHabitsViewMode
                     }
                 }
             ) {
-                IconButton(onClick = onOpenFilters, modifier = Modifier.size(32.dp)) {
+                // Borderless sliders icon, held in from the right edge.
+                Box(
+                    Modifier
+                        .padding(end = 10.dp)
+                        .size(38.dp)
+                        .clip(RoundedCornerShape(7.dp))
+                        .clickable(onClick = onOpenFilters),
+                    contentAlignment = Alignment.Center
+                ) {
                     Icon(
-                        Icons.Default.FilterList,
+                        Icons.Default.Tune,
                         contentDescription = "Filters",
-                        tint = if (state.filters.isActive) TriangleBrandPurple else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+                        modifier = Modifier.size(20.dp),
+                        tint = if (state.filters.isActive) TriangleBrandPurple else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
                     )
                 }
             }
+        }
+
+        if (showRangePicker) {
+            RangeCalendarDialog(
+                initialMonth = java.time.YearMonth.from(state.selectedDate),
+                onApply = { s, e -> viewModel.setDateRange(s, e); showRangePicker = false },
+                onClear = { viewModel.goToToday(); showRangePicker = false },
+                onDismiss = { showRangePicker = false }
+            )
         }
 
         Spacer(Modifier.height(15.dp))
@@ -322,7 +510,8 @@ private fun DateHeader(state: TasksHabitsUiState, viewModel: TasksHabitsViewMode
             brandColor = TriangleBrandPurple,
             pctForDate = { d -> if (activePage == 0) viewModel.tasksPctForDate(d) else viewModel.habitsPctForDate(d) },
             onSelect = viewModel::selectDate,
-            highlightRange = state.filters.dateRangeHighlight
+            highlightRange = state.filters.dateRangeHighlight,
+            range = state.dateRange
         )
     }
 }
@@ -361,13 +550,20 @@ private fun ordinalDateLabel(date: LocalDate): Pair<String, String> {
  */
 @Composable
 private fun FilterBar(state: TasksHabitsUiState, viewModel: TasksHabitsViewModel, activePage: Int) {
+    // Solo mode filters by the user's own categories (Settings > Categories).
+    val soloCategories by com.triangle.app.data.CategoryRepository.categoriesFlow(viewModel.sessionInfo.orgId)
+        .collectAsState(initial = com.triangle.app.data.CategoryRepository.DEFAULTS)
     val sharedCount = if (activePage == 0) state.sharedTaskCount else state.sharedHabitCount
     val soloCount = if (activePage == 0) state.soloTaskCount else state.soloHabitCount
 
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+        // Wider gap than the 8.dp between individual chips within each
+        // group below — this is the boundary between two DIFFERENT kinds
+        // of control (mode toggle vs. sub-filter), not just another chip
+        // in the same row, so it reads better with more separation.
+        horizontalArrangement = Arrangement.spacedBy(20.dp)
     ) {
         ModeSegment(sharedCount = sharedCount, soloCount = soloCount, active = state.itemMode, onSelect = viewModel::setItemMode)
         Row(
@@ -378,8 +574,16 @@ private fun FilterBar(state: TasksHabitsUiState, viewModel: TasksHabitsViewModel
                 ItemMode.SHARED -> SHARED_SUB_FILTER_ICONS.forEach { (filter, icon) ->
                     CategoryPill(filter.label, icon, state.sharedSubFilter == filter) { viewModel.setSharedSubFilter(filter) }
                 }
-                ItemMode.SOLO -> SOLO_CATEGORY_ICONS.forEach { (label, icon) ->
-                    CategoryPill(label, icon, state.soloCategoryFilter == label) { viewModel.setSoloCategoryFilter(label) }
+                ItemMode.SOLO -> {
+                    CategoryPill("All", Icons.Default.Apps, state.soloCategoryFilter == "All") { viewModel.setSoloCategoryFilter("All") }
+                    // Each of the user's own categories shows the icon they picked for it.
+                    soloCategories.forEach { c ->
+                        CategoryPill(
+                            c.name, null, state.soloCategoryFilter == c.name,
+                            svgIcon = com.triangle.app.data.HabitPalette.ICONS[c.iconKey]
+                                ?: com.triangle.app.data.HabitPalette.ICONS.getValue(com.triangle.app.data.HabitPalette.DEFAULT_ICON_KEY)
+                        ) { viewModel.setSoloCategoryFilter(c.name) }
+                    }
                 }
             }
         }
@@ -390,13 +594,6 @@ private val SHARED_SUB_FILTER_ICONS: List<Pair<SharedSubFilter, ImageVector>> = 
     SharedSubFilter.ALL to Icons.Default.Apps,
     SharedSubFilter.ASSIGNED_TO_ME to Icons.AutoMirrored.Filled.Assignment,
     SharedSubFilter.ASSIGNED_BY_ME to Icons.AutoMirrored.Filled.Send
-)
-
-private val SOLO_CATEGORY_ICONS: List<Pair<String, ImageVector>> = listOf(
-    "All" to Icons.Default.Apps,
-    "Office" to Icons.Default.Work,
-    "Academic" to Icons.Default.School,
-    "Personal" to Icons.Default.Person
 )
 
 /**
@@ -415,15 +612,20 @@ private fun ModeSegment(sharedCount: Int, soloCount: Int, active: ItemMode, onSe
             .background(MaterialTheme.colorScheme.surface)
             .border(1.5.dp, border, RoundedCornerShape(7.dp))
     ) {
-        StatusSegmentItem("Shared ($sharedCount)", active == ItemMode.SHARED) { onSelect(ItemMode.SHARED) }
-        StatusSegmentItem("Solo ($soloCount)", active == ItemMode.SOLO) { onSelect(ItemMode.SOLO) }
+        // IntrinsicSize.Max (not weight — this Row isn't width-constrained
+        // by its own parent, so weight alone wouldn't have anything to
+        // distribute) makes both halves match whichever label is wider,
+        // instead of each sizing to its own text ("Shared (12)" vs. "Solo
+        // (3)" previously ending up visibly different widths).
+        StatusSegmentItem("Solo ($soloCount)", active == ItemMode.SOLO, modifier = Modifier.width(IntrinsicSize.Max)) { onSelect(ItemMode.SOLO) }
+        StatusSegmentItem("Shared ($sharedCount)", active == ItemMode.SHARED, modifier = Modifier.width(IntrinsicSize.Max)) { onSelect(ItemMode.SHARED) }
     }
 }
 
 @Composable
-private fun StatusSegmentItem(label: String, active: Boolean, onClick: () -> Unit) {
+private fun StatusSegmentItem(label: String, active: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Box(
-        Modifier
+        modifier
             .fillMaxHeight()
             .background(if (active) TriangleBrandPurple else Color.Transparent)
             .clickable(onClick = onClick)
@@ -441,7 +643,7 @@ private fun StatusSegmentItem(label: String, active: Boolean, onClick: () -> Uni
 
 /** Matches .hd-cat-pill/.hd-cat-active — icon + label, bordered pill; active = brand-purple border/text, not filled. */
 @Composable
-private fun CategoryPill(label: String, icon: ImageVector, active: Boolean, onClick: () -> Unit) {
+private fun CategoryPill(label: String, icon: ImageVector?, active: Boolean, svgIcon: String? = null, onClick: () -> Unit) {
     val dark = triangleDarkTheme()
     val border = if (active) TriangleBrandPurple else MaterialTheme.colorScheme.onSurface.copy(alpha = if (dark) 0.18f else 0.13f)
     Row(
@@ -455,7 +657,9 @@ private fun CategoryPill(label: String, icon: ImageVector, active: Boolean, onCl
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Icon(icon, contentDescription = null, tint = if (active) TriangleBrandPurple else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f), modifier = Modifier.size(13.dp))
+        val iconTint = if (active) TriangleBrandPurple else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+        if (svgIcon != null) com.triangle.app.ui.SvgPathIcon(svgIcon, tint = iconTint, size = 14.dp)
+        else if (icon != null) Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(13.dp))
         Text(label, fontSize = 11.sp, fontWeight = if (active) FontWeight.Bold else FontWeight.SemiBold, color = if (active) TriangleBrandPurple else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f))
     }
 }
@@ -464,8 +668,11 @@ private fun CategoryPill(label: String, icon: ImageVector, active: Boolean, onCl
 private fun TasksPane(
     state: TasksHabitsUiState,
     viewModel: TasksHabitsViewModel,
+    listState: LazyListState,
     onOpenDetail: (String) -> Unit,
-    onOpenAssignedDetail: (AssignmentRepository.AssignedTaskGroup) -> Unit
+    onOpenAssignedDetail: (AssignmentRepository.AssignedTaskGroup) -> Unit,
+    onTaskCompleted: (com.triangle.app.data.models.Task) -> Unit,
+    highlightedId: String?
 ) {
     if (state.isLoading) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
@@ -476,29 +683,37 @@ private fun TasksPane(
         return
     }
     var expandedGroup by remember { mutableStateOf<AssignmentRepository.AssignedTaskGroup?>(null) }
+    // Long lists load a page at a time with a spinner at the bottom; a deep-link highlight needs the whole list in place.
+    val paging = com.triangle.app.ui.components.rememberLazyPaging(listState, state.visibleTasks.size, 20, resetKey = state.selectedDate to state.itemMode)
+    androidx.compose.runtime.LaunchedEffect(highlightedId) { if (highlightedId != null) paging.ensure(state.visibleTasks.size) }
     LazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(12.dp, 12.dp, 12.dp, 100.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        items(state.visibleTasks, key = { row -> when (row) { is TaskRow.Own -> row.task.id; is TaskRow.Assigned -> "assigned-${row.group.itemId}" } }) { row ->
-            when (row) {
-                is TaskRow.Own -> {
-                    val done = viewModel.isDone(row.task, state.completions)
-                    TaskRowCard(
-                        task = row.task,
-                        done = done,
-                        onClick = { onOpenDetail(row.task.id) },
-                        onToggleDone = { viewModel.completeTaskWithUndo(row.task) }
+        items(state.visibleTasks.take(paging.visible), key = { row -> when (row) { is TaskRow.Own -> row.task.id; is TaskRow.Assigned -> "assigned-${row.group.itemId}" } }) { row ->
+            val rowId = when (row) { is TaskRow.Own -> row.task.id; is TaskRow.Assigned -> row.group.itemId }
+            Box(Modifier.deepLinkHighlight(highlightedId == rowId)) {
+                when (row) {
+                    is TaskRow.Own -> {
+                        val done = viewModel.isDone(row.task, state.completions)
+                        TaskRowCard(
+                            task = row.task,
+                            done = done,
+                            onClick = { onOpenDetail(row.task.id) },
+                            onToggleDone = { viewModel.completeTaskWithUndo(row.task); onTaskCompleted(row.task) }
+                        )
+                    }
+                    is TaskRow.Assigned -> AssignedTaskRowCard(
+                        group = row.group,
+                        onClick = { onOpenAssignedDetail(row.group) },
+                        onShowProgress = { expandedGroup = row.group }
                     )
                 }
-                is TaskRow.Assigned -> AssignedTaskRowCard(
-                    group = row.group,
-                    onClick = { onOpenAssignedDetail(row.group) },
-                    onShowProgress = { expandedGroup = row.group }
-                )
             }
         }
+        if (paging.hasMore) item(key = "load-more") { com.triangle.app.ui.components.LoadMoreFooter() }
     }
     expandedGroup?.let { group ->
         AssignedGroupMembersSheet(
@@ -513,10 +728,13 @@ private fun TasksPane(
 private fun HabitsPane(
     state: TasksHabitsUiState,
     viewModel: TasksHabitsViewModel,
+    listState: LazyListState,
     onOpenDetail: (String) -> Unit,
     onOpenAnalytics: (String) -> Unit,
     onOpenAssignedDetail: (AssignmentRepository.AssignedHabitGroup) -> Unit,
-    onOpenAssignedAnalytics: (AssignmentRepository.AssignedHabitGroup) -> Unit
+    onOpenAssignedAnalytics: (AssignmentRepository.AssignedHabitGroup) -> Unit,
+    onHabitCompleted: (com.triangle.app.data.models.Habit) -> Unit,
+    highlightedId: String?
 ) {
     if (state.isLoading) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
@@ -527,36 +745,43 @@ private fun HabitsPane(
         return
     }
     var expandedGroup by remember { mutableStateOf<AssignmentRepository.AssignedHabitGroup?>(null) }
+    val paging = com.triangle.app.ui.components.rememberLazyPaging(listState, state.visibleHabits.size, 20, resetKey = state.selectedDate to state.itemMode)
+    androidx.compose.runtime.LaunchedEffect(highlightedId) { if (highlightedId != null) paging.ensure(state.visibleHabits.size) }
     val dateStr = state.selectedDate.toString()
     LazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(12.dp, 12.dp, 12.dp, 100.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        items(state.visibleHabits, key = { row -> when (row) { is HabitRow.Own -> row.habit.id; is HabitRow.Assigned -> "assigned-${row.group.itemId}" } }) { row ->
-            when (row) {
-                is HabitRow.Own -> {
-                    val completionsForHabit = state.habitCompletions[row.habit.id] ?: emptyMap()
-                    HabitCard(
-                        habit = row.habit,
-                        completions = completionsForHabit,
-                        streak = viewModel.streakFor(row.habit).current,
-                        doneToday = completionsForHabit.containsKey(dateStr),
-                        canComplete = state.selectedDate == java.time.LocalDate.now(),
-                        onClick = { onOpenDetail(row.habit.id) },
-                        onOpenAnalytics = { onOpenAnalytics(row.habit.id) },
-                        onCompleteToday = { viewModel.completeHabitToday(row.habit) }
+        items(state.visibleHabits.take(paging.visible), key = { row -> when (row) { is HabitRow.Own -> row.habit.id; is HabitRow.Assigned -> "assigned-${row.group.itemId}" } }) { row ->
+            val rowId = when (row) { is HabitRow.Own -> row.habit.id; is HabitRow.Assigned -> row.group.itemId }
+            Box(Modifier.deepLinkHighlight(highlightedId == rowId)) {
+                when (row) {
+                    is HabitRow.Own -> {
+                        val completionsForHabit = state.habitCompletions[row.habit.id] ?: emptyMap()
+                        HabitCard(
+                            habit = row.habit,
+                            completions = completionsForHabit,
+                            streak = viewModel.streakFor(row.habit).current,
+                            doneToday = completionsForHabit.containsKey(dateStr) || "${row.habit.id}|$dateStr" in state.optimisticHabitDone,
+                            canComplete = state.selectedDate == java.time.LocalDate.now() || (row.habit.allowBackdate && state.selectedDate.isBefore(java.time.LocalDate.now())),
+                            onClick = { onOpenDetail(row.habit.id) },
+                            onOpenAnalytics = { onOpenAnalytics(row.habit.id) },
+                            onCompleteToday = { viewModel.completeHabitOn(row.habit, state.selectedDate); onHabitCompleted(row.habit) }
+                        )
+                    }
+                    is HabitRow.Assigned -> AssignedHabitRowCard(
+                        group = row.group,
+                        dateStr = dateStr,
+                        onClick = { onOpenAssignedDetail(row.group) },
+                        onShowProgress = { expandedGroup = row.group },
+                        onOpenAnalytics = { onOpenAssignedAnalytics(row.group) }
                     )
                 }
-                is HabitRow.Assigned -> AssignedHabitRowCard(
-                    group = row.group,
-                    dateStr = dateStr,
-                    onClick = { onOpenAssignedDetail(row.group) },
-                    onShowProgress = { expandedGroup = row.group },
-                    onOpenAnalytics = { onOpenAssignedAnalytics(row.group) }
-                )
             }
         }
+        if (paging.hasMore) item(key = "load-more") { com.triangle.app.ui.components.LoadMoreFooter() }
     }
     expandedGroup?.let { group ->
         AssignedGroupMembersSheet(
@@ -578,4 +803,13 @@ private fun EmptyState(emoji: String, message: String) {
         Spacer(Modifier.height(12.dp))
         Text(message, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
     }
+}
+
+/** "1 Oct – 7 Oct" (bold) + year-aware second half, for a picked range. */
+private fun rangeLabel(r: DateSpan): Pair<String, String> {
+    fun short(d: LocalDate) = "${d.dayOfMonth} ${d.month.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.getDefault())}"
+    val thisYear = LocalDate.now().year
+    val tail = if (r.start.year == r.end.year) (if (r.end.year == thisYear) "${r.start.until(r.end, java.time.temporal.ChronoUnit.DAYS) + 1} days" else r.end.year.toString())
+    else "${r.start.year}–${r.end.year}"
+    return "${short(r.start)} – ${short(r.end)}" to tail
 }

@@ -2,48 +2,61 @@ package com.triangle.app.data
 
 import com.google.firebase.database.FirebaseDatabase
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.tasks.await
 
-/**
- * Faithful port of getIndividualGlobalRanking() (script.js:13214-13243) —
- * a genuinely cross-account global ranking, not a rank-of-1 degenerate like
- * some other per-org features this project has ported. Does the SAME
- * one-shot full-root-scan the source does: fetches the entire
- * `organizations` and `users` trees, filters to `type:"individual"` orgs,
- * and pulls each one's points out of its own embedded
- * `data/submissions/{adminId}/points`. There is no denormalized top-level
- * points index to query instead — this cost (reading every org's full data
- * blob just to read one field) is inherited from the source, same tradeoff
- * this project already accepted for Milestone 5's global DM user search.
- */
+/** Leaderboard data: points of the signed-in user and their connections (not a global ranking). */
 object LeaderboardRepository {
-    private val db get() = FirebaseDatabase.getInstance(TriangleConfig.FIREBASE_URL)
+    private val db get() = FirebaseDatabase.getInstance()
 
-    data class LeaderboardEntry(val uid: String, val orgId: String, val name: String, val points: Int, val photoUrl: String? = null)
+    /** [points] is the all-time total; [weekPoints] the last 7 days (like "Points This Week"); [monthPoints] the current calendar month. */
+    data class LeaderboardEntry(
+        val uid: String, val orgId: String, val name: String, val points: Int, val photoUrl: String? = null,
+        val weekPoints: Int = 0, val monthPoints: Int = 0
+    )
 
-    suspend fun fetchGlobalRanking(): List<LeaderboardEntry> {
-        // Both root trees fetched once up front, then joined in memory — matches
-        // source's own Promise.all([fbRootGet('organizations'), fbRootGet('users')]),
-        // not a separate per-row users/{uid} lookup.
-        val orgsSnap = db.getReference("organizations").get().await()
-        val usersSnap = db.getReference("users").get().await()
-
-        val entries = orgsSnap.children.mapNotNull { orgSnap ->
-            val orgId = orgSnap.key ?: return@mapNotNull null
-            val type = orgSnap.child("type").value as? String
-            val adminId = orgSnap.child("adminId").value as? String
-            if (type != "individual" || adminId.isNullOrBlank()) return@mapNotNull null
-            val points = (orgSnap.child("data/submissions/$adminId/points").value as? Number)?.toInt() ?: 0
-            val name = (usersSnap.child(adminId).child("name").value as? String)?.ifBlank { null } ?: "Anonymous"
-            val photoUrl = usersSnap.child(adminId).child("photoUrl").value as? String
-            LeaderboardEntry(uid = adminId, orgId = orgId, name = name, points = points, photoUrl = photoUrl)
-        }
-        return entries.sortedByDescending { it.points }
+    /**
+     * Ranking of ME and my connections only — nobody outside my circle is read or shown. Per person it fetches
+     * just their user record and three tiny values from their own org (never the whole `organizations` tree).
+     */
+    suspend fun fetchRanking(myUid: String, connectionUids: Set<String>): List<LeaderboardEntry> = coroutineScope {
+        val uids = (connectionUids + myUid).toList()
+        val entries = uids.chunked(20).flatMap { chunk ->
+            chunk.map { uid ->
+                async {
+                    runCatching {
+                        val user = db.getReference("users/$uid").get().await()
+                        val orgId = (user.child("orgId").value as? String)?.takeIf { it.isNotBlank() } ?: return@runCatching null
+                        val name = (user.child("name").value as? String)?.ifBlank { null } ?: "Anonymous"
+                        val photoUrl = user.child("photoUrl").value as? String
+                        val org = db.getReference("organizations/$orgId")
+                        val type = org.child("type").get().await().value as? String
+                        val adminId = org.child("adminId").get().await().value as? String
+                        if (type != "individual" || adminId != uid) return@runCatching null
+                        val points = (org.child("data/submissions/$uid/points").get().await().value as? Number)?.toInt() ?: 0
+                        val today = java.time.LocalDate.now()
+                        val todayStr = today.toString()
+                        val weekStart = today.minusDays(6).toString()
+                        val monthPrefix = todayStr.substring(0, 7)
+                        var week = 0
+                        var month = 0
+                        org.child("data/submissions/$uid/pointHistory").get().await().children.forEach { h ->
+                            val date = h.child("date").value as? String ?: return@forEach
+                            val pts = (h.child("pts").value as? Number)?.toInt() ?: (h.child("points").value as? Number)?.toInt() ?: 0
+                            if (date >= weekStart && date <= todayStr) week += pts
+                            if (date.startsWith(monthPrefix)) month += pts
+                        }
+                        LeaderboardEntry(uid = uid, orgId = orgId, name = name, points = points, photoUrl = photoUrl, weekPoints = week, monthPoints = month)
+                    }.getOrNull()
+                }
+            }.awaitAll()
+        }.filterNotNull()
+        entries.sortedByDescending { it.points }
     }
 
-    /** Per-Circle-member XP totals for the leaderboard's "You Owe"/"He Owe" lines, keyed by the other person's uid. */
+    /** Per-Circle-member XP totals for the leaderboard's "You Owe"/"Owes" lines, keyed by the other person's uid. */
     data class OweAmounts(val youOwe: Int, val heOwe: Int)
 
     /**

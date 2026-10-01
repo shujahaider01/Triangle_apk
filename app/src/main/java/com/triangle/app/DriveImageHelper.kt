@@ -36,17 +36,32 @@ object DriveImageHelper {
 
     /** Compresses to JPEG, uploads to Drive, makes it link-viewable, and returns a directly-loadable image URL. */
     @Throws(Exception::class)
-    fun uploadImage(accessToken: String, fileName: String, bitmap: Bitmap): String {
-        val fileId = uploadBytes(accessToken, fileName, compressJpeg(bitmap))
+    fun uploadImage(accessToken: String, fileName: String, bitmap: Bitmap): String =
+        uploadJpeg(accessToken, fileName, compressJpeg(bitmap))
+
+    /** Same as [uploadImage] for callers that already have the JPEG bytes (e.g. to record their size first). */
+    @Throws(Exception::class)
+    fun uploadJpeg(accessToken: String, fileName: String, jpegBytes: ByteArray): String {
+        val fileId = uploadBytes(accessToken, fileName, "image/jpeg", jpegBytes)
         makePubliclyViewable(accessToken, fileId)
         return "https://drive.google.com/uc?export=view&id=$fileId"
     }
+
+    /** Uploads any file (photo, video, PDF) and makes it link-viewable; returns the same `uc?export=view` style URL as [uploadJpeg]. */
+    @Throws(Exception::class)
+    fun uploadFile(accessToken: String, fileName: String, mimeType: String, bytes: ByteArray): String {
+        val fileId = uploadBytes(accessToken, fileName, mimeType, bytes)
+        makePubliclyViewable(accessToken, fileId)
+        return "https://drive.google.com/uc?export=view&id=$fileId"
+    }
+
+    fun toJpegBytes(bitmap: Bitmap): ByteArray = compressJpeg(bitmap)
 
     // Binary-safe multipart upload (unlike DriveBackupHelper.uploadBackup's
     // String-concatenation body, which is fine for JSON text but would
     // corrupt arbitrary JPEG bytes) — builds the request body as raw bytes
     // via ByteArrayOutputStream instead.
-    private fun uploadBytes(accessToken: String, fileName: String, jpegBytes: ByteArray): String {
+    private fun uploadBytes(accessToken: String, fileName: String, mimeType: String, fileBytes: ByteArray): String {
         val boundary = "txp_img_boundary_" + System.currentTimeMillis()
         val metadata = JSONObject().apply { put("name", fileName) }
 
@@ -56,8 +71,8 @@ object DriveImageHelper {
         writeText("Content-Type: application/json; charset=UTF-8\r\n\r\n")
         writeText(metadata.toString())
         writeText("\r\n--$boundary\r\n")
-        writeText("Content-Type: image/jpeg\r\n\r\n")
-        body.write(jpegBytes)
+        writeText("Content-Type: $mimeType\r\n\r\n")
+        body.write(fileBytes)
         writeText("\r\n--$boundary--")
         val bodyBytes = body.toByteArray()
 
@@ -113,3 +128,4 @@ object DriveImageHelper {
         return sb.toString()
     }
 }
+

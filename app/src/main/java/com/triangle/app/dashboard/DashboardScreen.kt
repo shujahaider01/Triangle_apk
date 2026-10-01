@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -25,8 +26,14 @@ import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.EmojiEvents
+import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.EventAvailable
+import androidx.compose.material.icons.outlined.Leaderboard
+import androidx.compose.material.icons.outlined.ListAlt
+import androidx.compose.material.icons.outlined.MailOutline
+import androidx.compose.material.icons.rounded.StarOutline
 import androidx.compose.material.icons.outlined.RateReview
 import androidx.compose.material.icons.outlined.SentimentSatisfied
 import androidx.compose.material3.CircularProgressIndicator
@@ -38,6 +45,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -85,10 +95,12 @@ private data class Category(
     val bg: Color,
     val tint: Color,
     val icon: ImageVector,
-    val onClick: (() -> Unit)? = null
+    val onClick: (() -> Unit)? = null,
+    /** Unread count shown as a red badge on the icon (0 = none). */
+    val badge: Int = 0
 )
 
-private data class AnalyticsCard(val label: String, val value: String, val gradient: List<Color>, val tint: Color)
+private data class AnalyticsCard(val label: String, val value: String, val gradient: List<Color>, val tint: Color, val onClick: (() -> Unit)? = null)
 
 /**
  * Native port of script.js's renderInternDashboard() — same layout, colors
@@ -106,16 +118,22 @@ fun DashboardScreen(
     onOpenDm: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenLeaderboard: () -> Unit,
-    onOpenCircle: () -> Unit
+    onOpenReviews: () -> Unit,
+    onOpenInbox: () -> Unit,
+    onOpenBacklog: (TasksListMode) -> Unit,
+    onOpenCircle: () -> Unit,
+    onOpenArchive: () -> Unit
 ) {
+    var menuOpen by remember { mutableStateOf(false) }
     val viewModel: DashboardViewModel = viewModel(
         factory = viewModelFactory { initializer { DashboardViewModel(session) } }
     )
     val state by viewModel.uiState.collectAsState()
     val dark = triangleDarkTheme()
     val context = LocalContext.current
-    val tasksNavPane by TasksHabitsUiPrefs.lastActivePaneFlow(context.applicationContext, session.uid).collectAsState(initial = 0)
+    val tasksNavPane by TasksHabitsUiPrefs.lastActivePaneFlow(context.applicationContext, session.uid).collectAsState(initial = 1)
 
+    Box(Modifier.fillMaxSize()) {
     Scaffold(
         bottomBar = {
             AppBottomNav(
@@ -136,9 +154,26 @@ fun DashboardScreen(
                 state.error != null -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
                     Text(state.error ?: "Something went wrong", color = MaterialTheme.colorScheme.error)
                 }
-                else -> DashboardContent(state, padding, dark, onOpenNotifications, onOpenDm, onOpenSettings, onOpenLeaderboard, onOpenCircle)
+                else -> DashboardContent(state, padding, dark, onOpenNotifications, onOpenDm, { menuOpen = true }, onOpenLeaderboard, onOpenReviews, onOpenInbox, onOpenBacklog, onOpenCircle)
             }
         }
+    }
+    SideMenu(open = menuOpen, onClose = { menuOpen = false }, onConnections = onOpenCircle, onSettings = onOpenSettings, onArchive = onOpenArchive)
+    }
+}
+
+/** Soft circular icon button used for the header's bell and chat actions. */
+@Composable
+private fun HeaderIconButton(icon: ImageVector, description: String, dark: Boolean, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .size(42.dp)
+            .clip(CircleShape)
+            .background(if (dark) Color.White.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.75f))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(icon, contentDescription = description, modifier = Modifier.size(22.dp))
     }
 }
 
@@ -151,6 +186,9 @@ private fun DashboardContent(
     onOpenDm: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenLeaderboard: () -> Unit,
+    onOpenReviews: () -> Unit,
+    onOpenInbox: () -> Unit,
+    onOpenBacklog: (TasksListMode) -> Unit,
     onOpenCircle: () -> Unit
 ) {
     val text2 = if (dark) Text2Dark else Text2Light
@@ -163,21 +201,40 @@ private fun DashboardContent(
     ) {
         // ── Minimal header: hamburger + Circle + notif bell + DM icon ──
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp).padding(end = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onOpenSettings) {
                 Icon(Icons.Default.Menu, contentDescription = "Menu")
             }
             Spacer(Modifier.weight(1f))
-            IconButton(onClick = onOpenCircle) {
-                Icon(Icons.Default.People, contentDescription = "My Circle")
+            androidx.compose.material3.BadgedBox(badge = {
+                if (com.triangle.app.data.FeatureFlags.isEnabled(com.triangle.app.data.FeatureFlag.NOTIFICATION_BADGE_ENABLED) && state.unreadNotifCount > 0) {
+                    androidx.compose.material3.Badge(
+                        // BadgedBox anchors to the IconButton's full 48dp
+                        // touch target, not the visually smaller 24dp icon
+                        // inside it, so the default position sits
+                        // noticeably further from the bell than it looks
+                        // like it should — pull it in toward the icon.
+                        modifier = Modifier.offset(x = (-4).dp, y = 4.dp)
+                    ) {
+                        Text(if (state.unreadNotifCount > 9) "9+" else state.unreadNotifCount.toString())
+                    }
+                }
+            }) {
+                HeaderIconButton(Icons.Outlined.Notifications, "Notifications", dark, onOpenNotifications)
             }
-            IconButton(onClick = onOpenNotifications) {
-                Icon(Icons.Default.Notifications, contentDescription = "Notifications")
-            }
-            IconButton(onClick = onOpenDm) {
-                Icon(Icons.AutoMirrored.Filled.Article, contentDescription = "Messages")
+            if (com.triangle.app.data.FeatureFlags.isEnabled(com.triangle.app.data.FeatureFlag.DM_ENABLED)) {
+                Spacer(Modifier.width(10.dp))
+                androidx.compose.material3.BadgedBox(badge = {
+                    if (state.unreadDmCount > 0) {
+                        androidx.compose.material3.Badge(modifier = Modifier.offset(x = (-4).dp, y = 4.dp)) {
+                            Text(if (state.unreadDmCount > 9) "9+" else state.unreadDmCount.toString())
+                        }
+                    }
+                }) {
+                    HeaderIconButton(Icons.Outlined.ChatBubbleOutline, "Messages", dark, onOpenDm)
+                }
             }
         }
 
@@ -251,32 +308,48 @@ private fun DashboardContent(
             Spacer(Modifier.height(16.dp))
 
             // ── Category shortcuts (horizontal scroll) ──
+            val comingSoonContext = androidx.compose.ui.platform.LocalContext.current
+            fun comingSoonToast() = android.widget.Toast.makeText(comingSoonContext, "Coming soon!", android.widget.Toast.LENGTH_SHORT).show()
             val categories = listOf(
-                Category("Leaderboard", true, Color(0xFFFEF3C7), Color(0xFFD97706), icon = Icons.Outlined.EmojiEvents, onClick = onOpenLeaderboard),
-                Category("Moods", false, Color(0xFFEDE9FE), Color(0xFF8B5CF6), icon = Icons.Outlined.SentimentSatisfied),
-                Category("Reviews", false, Color(0xFFDCFCE7), Color(0xFF22C55E), icon = Icons.Outlined.RateReview),
-                Category("Attendance", false, Color(0xFFFDE2E2), Color(0xFFEF4444), icon = Icons.Outlined.EventAvailable)
+                Category("Leaderboard", true, Color(0xFFFFF1CC), Color(0xFFD97706), icon = Icons.Outlined.Leaderboard, onClick = onOpenLeaderboard),
+                Category("Reviews", true, Color(0xFFFFF1CC), Color(0xFFF5A623), icon = Icons.Rounded.StarOutline, onClick = onOpenReviews),
+                Category("Inbox", true, Color(0xFFDBEAFE), Color(0xFF2563EB), icon = Icons.Outlined.MailOutline, onClick = onOpenInbox, badge = state.unreadInboxCount),
+                Category("Backlog", true, Color(0xFFEDE9FE), Color(0xFF6D5EF5), icon = Icons.Outlined.ListAlt, onClick = { onOpenBacklog(TasksListMode.ALL) }),
+                Category("Moods", false, Color(0xFFEDE9FE), Color(0xFF8B5CF6), icon = Icons.Outlined.SentimentSatisfied, onClick = ::comingSoonToast),
+                Category("Attendance", false, Color(0xFFFDE2E2), Color(0xFFEF4444), icon = Icons.Outlined.EventAvailable, onClick = ::comingSoonToast)
             )
             Row(
                 modifier = Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 categories.forEach { cat ->
+                    // "enabled" still drives the dimmed look for
+                    // not-yet-built categories, but they're still tappable
+                    // now (to show the "Coming soon!" toast) — only the
+                    // click *handler*, not the click itself, used to be
+                    // conditional on it.
                     val alpha = if (cat.enabled) 1f else 0.45f
                     Column(
                         modifier = Modifier
                             .width(74.dp)
-                            .clickable(enabled = cat.enabled) { cat.onClick?.invoke() },
+                            .clickable { cat.onClick?.invoke() },
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Box(
-                            Modifier
-                                .size(52.dp)
-                                .clip(CircleShape)
-                                .background(cat.bg.copy(alpha = alpha)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(cat.icon, contentDescription = cat.name, tint = cat.tint.copy(alpha = alpha), modifier = Modifier.size(24.dp))
+                        Box(contentAlignment = Alignment.TopEnd) {
+                            Box(
+                                Modifier
+                                    .size(52.dp)
+                                    .clip(CircleShape)
+                                    .background(cat.bg.copy(alpha = alpha)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(cat.icon, contentDescription = cat.name, tint = cat.tint.copy(alpha = alpha), modifier = Modifier.size(24.dp))
+                            }
+                            if (cat.badge > 0) {
+                                androidx.compose.material3.Badge(modifier = Modifier.offset(x = 4.dp, y = (-2).dp)) {
+                                    Text(if (cat.badge > 9) "9+" else cat.badge.toString())
+                                }
+                            }
                         }
                         Spacer(Modifier.height(7.dp))
                         Text(
@@ -293,15 +366,15 @@ private fun DashboardContent(
             }
 
             Spacer(Modifier.height(18.dp))
-            Text("Analytics", fontSize = 17.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onBackground)
+            Text("Analytics", fontSize = 17.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onBackground, modifier = Modifier.padding(horizontal = 14.dp))
             Spacer(Modifier.height(10.dp))
 
             val cards = listOf(
-                AnalyticsCard("Total Tasks", state.totalTasksAll.toLocaleString(), listOf(Color(0xFFEFEAFD), Color(0xFFF8F7FE)), Color(0xFF6D5EF5)),
-                AnalyticsCard("Tasks Completed", state.tasksCompleted.toLocaleString(), listOf(Color(0xFFE0F7FA), Color(0xFFF2FCFD)), Color(0xFF06B6D4)),
-                AnalyticsCard("XP This Week", state.weeklyXP.toLocaleString(), listOf(Color(0xFFFDEEEE), Color(0xFFFEF8F8)), Color(0xFFEF4444)),
+                AnalyticsCard("Total Tasks", state.totalTasksAll.toLocaleString(), listOf(Color(0xFFEFEAFD), Color(0xFFF8F7FE)), Color(0xFF6D5EF5), onClick = { onOpenBacklog(TasksListMode.ALL) }),
+                AnalyticsCard("Tasks Completed", state.tasksCompleted.toLocaleString(), listOf(Color(0xFFE0F7FA), Color(0xFFF2FCFD)), Color(0xFF06B6D4), onClick = { onOpenBacklog(TasksListMode.COMPLETED) }),
+                AnalyticsCard("Pending Tasks", (state.totalTasksAll - state.tasksCompleted).coerceAtLeast(0).toLocaleString(), listOf(Color(0xFFFFF4E0), Color(0xFFFFFAF0)), Color(0xFFF59E0B), onClick = { onOpenBacklog(TasksListMode.PENDING) }),
+                AnalyticsCard("Points This Week", state.weeklyXP.toLocaleString(), listOf(Color(0xFFFDEEEE), Color(0xFFFEF8F8)), Color(0xFFEF4444)),
                 AnalyticsCard("Current Streak", state.currentStreak.toString(), listOf(Color(0xFFFFF1E2), Color(0xFFFFFAF3)), Color(0xFFF97316)),
-                AnalyticsCard("Longest Streak", state.longestStreak.toString(), listOf(Color(0xFFE9FBEF), Color(0xFFF6FDF8)), Color(0xFF22C55E)),
                 AnalyticsCard("Current Rank", "#${state.rank}", listOf(Color(0xFFEAF2FE), Color(0xFFF6FAFE)), Color(0xFF3B82F6))
             )
             // Hand-rolled 2-column grid (not LazyVerticalGrid) — a fixed
@@ -309,17 +382,18 @@ private fun DashboardContent(
             // so it can never under-measure its own height and clip the
             // last row the way a LazyVerticalGrid with a guessed fixed
             // height did.
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(Modifier.padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
                 cards.chunked(2).forEach { rowCards ->
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(13.dp)) {
                         rowCards.forEach { card ->
                             val cardBg = if (dark) CardBgDark else null
                             Column(
                                 modifier = Modifier
                                     .weight(1f)
-                                    .aspectRatio(2.2f)
+                                    .aspectRatio(1.96f)
                                     .clip(RoundedCornerShape(16.dp))
                                     .background(if (cardBg != null) Brush.linearGradient(listOf(cardBg, cardBg)) else Brush.linearGradient(card.gradient))
+                                    .then(if (card.onClick != null) Modifier.clickable { card.onClick.invoke() } else Modifier)
                                     .padding(14.dp, 12.dp, 14.dp, 12.dp),
                                 verticalArrangement = Arrangement.Bottom
                             ) {

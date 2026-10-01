@@ -16,7 +16,8 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 
-data class CircleMember(val uid: String, val name: String, val username: String?, val canAssign: Boolean = true, val photoUrl: String? = null)
+/** [canAnnounce] = whether THIS member may send announcements to the viewer (a per-sender block the viewer controls). */
+data class CircleMember(val uid: String, val name: String, val username: String?, val canAssign: Boolean = true, val photoUrl: String? = null, val canAnnounce: Boolean = true)
 data class CircleUiState(val isLoading: Boolean = true, val members: List<CircleMember> = emptyList())
 data class RequestsUiState(val isLoading: Boolean = true, val requests: List<ConnectionRequest> = emptyList())
 
@@ -60,12 +61,18 @@ class CircleViewModel(private val session: SessionStore.Session) : ViewModel() {
     init {
         combine(
             ConnectionRepository.circleFlow(session.uid),
-            ConnectionRepository.assignPermissionsFlow(session.uid)
-        ) { uids, permissions -> uids to permissions }
-            .onEach { (uids, permissions) ->
+            ConnectionRepository.assignPermissionsFlow(session.uid),
+            ConnectionRepository.announcePermissionsFlow(session.uid)
+        ) { uids, permissions, announcePermissions -> Triple(uids, permissions, announcePermissions) }
+            .onEach { (uids, permissions, announcePermissions) ->
                 val members = uids.mapNotNull { uid ->
                     UserRepository.fetchUserRecord(uid)?.let {
-                        CircleMember(uid, it.name, it.username, canAssign = permissions[uid] ?: true, photoUrl = it.photoUrl)
+                        CircleMember(
+                            uid, it.name, it.username,
+                            canAssign = permissions[uid] ?: true,
+                            photoUrl = it.photoUrl,
+                            canAnnounce = announcePermissions[uid] ?: true
+                        )
                     }
                 }.sortedBy { it.name.lowercase() }
                 _circle.value = CircleUiState(isLoading = false, members = members)
@@ -105,6 +112,10 @@ class CircleViewModel(private val session: SessionStore.Session) : ViewModel() {
 
     fun declineRequest(fromUid: String) {
         viewModelScope.launch { ConnectionRepository.declineRequest(session.uid, fromUid) }
+    }
+
+    fun setAnnouncePermission(senderUid: String, allowed: Boolean) {
+        viewModelScope.launch { ConnectionRepository.setAnnouncePermission(session.uid, senderUid, allowed) }
     }
 
     fun setAssignPermission(uid: String, canAssign: Boolean) {

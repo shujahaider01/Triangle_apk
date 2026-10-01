@@ -62,7 +62,7 @@ import com.triangle.app.data.HabitPalette
 import com.triangle.app.data.HabitRepository
 import com.triangle.app.data.HabitStats
 import com.triangle.app.data.SessionStore
-import com.triangle.app.data.TaskNoteRepository
+import com.triangle.app.ui.components.rememberDriveImageUploader
 import com.triangle.app.data.UserRepository
 import com.triangle.app.data.models.Habit
 import com.triangle.app.data.models.TaskNote
@@ -86,11 +86,16 @@ fun HabitDetailScreen(
     habit: Habit,
     canEdit: Boolean,
     onEdit: () -> Unit,
+    onDelete: () -> Unit,
+    onArchive: () -> Unit,
     onOpenAnalytics: () -> Unit,
     onBack: () -> Unit,
     highlightOnOpen: Boolean = false
 ) {
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+    var showArchiveConfirm by remember { mutableStateOf(false) }
     val streak = viewModel.streakFor(habit)
+    val habitCompletionsMap = viewModel.completionsFor(habit)
     val today = LocalDate.now().toString()
 
     val color = runCatching { Color(android.graphics.Color.parseColor(habit.color)) }.getOrDefault(MaterialTheme.colorScheme.primary)
@@ -138,10 +143,11 @@ fun HabitDetailScreen(
     }
     val cameraLauncher = rememberCameraCaptureLauncher { bmp -> rawPhotoForCrop = bmp }
 
+    val driveUploader = rememberDriveImageUploader()
     fun uploadPhoto(bmp: Bitmap) {
         scope.launch {
             runCatching {
-                val url = TaskNoteRepository.uploadHabitPhoto(session.orgId, session.uid, habit.id, bmp)
+                val url = driveUploader.upload(bmp, "TriangleHabitPhoto_${habit.id}_${System.currentTimeMillis()}.jpg")
                 HabitRepository.addHabitPhoto(
                     session.orgId, habit.id,
                     TaskNote(type = "photo", content = url, userId = session.uid, userName = session.name, role = session.role, timestamp = System.currentTimeMillis())
@@ -186,14 +192,23 @@ fun HabitDetailScreen(
                     title = habit.name,
                     pillIcon = Icons.Default.Autorenew,
                     pillText = freqLabel,
-                    actions = listOf(
-                        DetailHeroAction(Icons.Default.BarChart, "Analytics", onClick = onOpenAnalytics),
-                        DetailHeroAction(Icons.Default.EmojiEvents, "Streak", onClick = { showAchievements = true }),
-                        DetailHeroAction(Icons.Default.NoteAdd, "Add Note", onClick = { showNoteDialog = true }),
-                        DetailHeroAction(Icons.Default.AddAPhoto, "Add Photo", onClick = { showPhotoSheet = true })
-                    ),
+                    actions = buildList {
+                        add(DetailHeroAction(Icons.Default.BarChart, "Analytics", onClick = onOpenAnalytics))
+                        add(DetailHeroAction(Icons.Default.EmojiEvents, "Streak", onClick = { showAchievements = true }))
+                        if (com.triangle.app.data.FeatureFlags.isEnabled(com.triangle.app.data.FeatureFlag.TASK_HABIT_NOTES_ENABLED)) {
+                            add(DetailHeroAction(Icons.Default.NoteAdd, "Add Note", onClick = { showNoteDialog = true }))
+                            add(DetailHeroAction(Icons.Default.AddAPhoto, "Add Photo", onClick = { showPhotoSheet = true }))
+                        }
+                    },
                     onBack = onBack,
-                    onEdit = if (canEdit) onEdit else null
+                    menuOptions = buildList {
+                        if (canEdit) {
+                            add(DetailMenuOption("Edit", onClick = onEdit))
+                            add(DetailMenuOption("Delete", destructive = true, onClick = { showDeleteConfirm = true }))
+                        } else {
+                            add(DetailMenuOption("Archive", onClick = { showArchiveConfirm = true }))
+                        }
+                    }
                 )
             }
             Column(
@@ -228,6 +243,7 @@ fun HabitDetailScreen(
                             DetailInfoRowPerson("Assigned To", if (assignerName != null) "You" else session.name, session.photoUrl)
                             DetailInfoRow("Frequency", freqLabel)
                             DetailInfoRow("Current Streak", "${streak.current} day${if (streak.current == 1) "" else "s"}")
+                            DetailInfoRow("Reminder", formatReminderTime(habit.reminderTime) ?: "Off")
                             DetailInfoRow("Habit Created", habit.startDate, isLast = true)
                         }
                     }
@@ -277,6 +293,26 @@ fun HabitDetailScreen(
         DetailStickyHeader(title = habit.name, visible = scrollProgress >= 1f, onBack = onBack)
     }
 
+    if (showDeleteConfirm) {
+        ConfirmDialog(
+            title = "Delete this habit?",
+            body = "This can't be undone.",
+            confirmLabel = "Delete",
+            destructive = true,
+            onConfirm = { showDeleteConfirm = false; onDelete(); onBack() },
+            onDismiss = { showDeleteConfirm = false }
+        )
+    }
+    if (showArchiveConfirm) {
+        ConfirmDialog(
+            title = "Archive this habit?",
+            body = "It'll be hidden from your lists. You can find it later under Settings > Archived Items.",
+            confirmLabel = "Archive",
+            onConfirm = { showArchiveConfirm = false; onArchive(); onBack() },
+            onDismiss = { showArchiveConfirm = false }
+        )
+    }
+
     if (showPhotoSheet) {
         PhotoSourceSheet(
             onTakePhoto = { showPhotoSheet = false; cameraLauncher() },
@@ -296,7 +332,7 @@ fun HabitDetailScreen(
     lightboxUrl?.let { url ->
         androidx.compose.ui.window.Dialog(onDismissRequest = { lightboxUrl = null }, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
             Box(Modifier.fillMaxSize().background(Color.Black)) {
-                AsyncImage(model = url, contentDescription = "Photo", contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
+                com.triangle.app.ui.components.ZoomableImage(model = url, contentDescription = "Photo")
                 IconButton(onClick = { lightboxUrl = null }, modifier = Modifier.padding(12.dp)) {
                     Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
                 }
@@ -305,7 +341,7 @@ fun HabitDetailScreen(
     }
 
     if (showAchievements) {
-        HabitAchievementsSheet(habit = habit, streak = streak, onDismiss = { showAchievements = false })
+        HabitAchievementsSheet(habit = habit, streak = streak, completions = habitCompletionsMap, onDismiss = { showAchievements = false })
     }
 
     if (showNoteDialog) {

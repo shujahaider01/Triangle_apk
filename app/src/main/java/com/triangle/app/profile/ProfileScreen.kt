@@ -7,6 +7,7 @@ import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,6 +25,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -43,11 +47,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -83,7 +92,7 @@ fun ProfileScreen(
 ) {
     val viewModel: ProfileViewModel = viewModel(factory = viewModelFactory { initializer { ProfileViewModel(session) } })
     val context = LocalContext.current
-    val tasksNavPane by TasksHabitsUiPrefs.lastActivePaneFlow(context.applicationContext, session.uid).collectAsState(initial = 0)
+    val tasksNavPane by TasksHabitsUiPrefs.lastActivePaneFlow(context.applicationContext, session.uid).collectAsState(initial = 1)
     ProfileScreenContent(
         viewModel = viewModel,
         bottomBar = {
@@ -121,19 +130,14 @@ fun PublicProfileScreen(
     )
     ProfileScreenContent(
         viewModel = viewModel,
-        topBar = { state ->
-            TopAppBar(
-                title = { Text(state.name.ifBlank { name }, fontWeight = FontWeight.Bold) },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } }
-            )
-        }
+        onBack = onBack
     )
 }
 
 @Composable
 private fun ProfileScreenContent(
     viewModel: ProfileViewModel,
-    topBar: @Composable (ProfileUiState) -> Unit = {},
+    onBack: (() -> Unit)? = null,
     bottomBar: @Composable () -> Unit = {}
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -163,7 +167,7 @@ private fun ProfileScreenContent(
 
     Box(Modifier.fillMaxSize()) {
     Scaffold(
-        topBar = { topBar(state) },
+
         bottomBar = bottomBar
     ) { padding ->
         // Same orange->pink->purple->blue page gradient as Dashboard/Tasks.
@@ -182,19 +186,35 @@ private fun ProfileScreenContent(
                 // behind the status bar since the Box behind this Column isn't
                 // padded, only the Column's content is. For the read-only
                 // PublicProfileScreen case, this is the real TopAppBar's height.
-                else -> Column(Modifier.fillMaxSize().padding(padding)) {
-                    ProfileHero(
-                        state = state,
-                        palette = palette,
-                        editable = !viewModel.isReadOnly,
-                        uploadingPhoto = state.photoUploading || decodingPhoto,
-                        onAvatarClick = { pickImageLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
-                    )
-                    ProfileTabBar(state.tab, palette, onSelect = viewModel::selectTab)
-                    when (state.tab) {
-                        ProfileTab.Overview -> OverviewTab(state, palette)
-                        ProfileTab.Analytics -> AnalyticsTab(state, palette, onMonthChange = viewModel::changeAnalyticsMonth, onYearChange = viewModel::changeAnalyticsYear)
-                        ProfileTab.Achievement -> AchievementTab(state, palette)
+                else -> {
+                    // The whole page scrolls as one; for your own profile a thin sticky bar
+                    // (name fades in, share stays put, hairline appears) rides over the top.
+                    val scroll = rememberScrollState()
+                    val readOnly = viewModel.isReadOnly
+                    Box(Modifier.fillMaxSize()) {
+                        Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(bottom = padding.calculateBottomPadding())) {
+                            ProfileHero(
+                                topInset = padding.calculateTopPadding(),
+                                barSpace = StickyBarHeight,
+                                state = state,
+                                editable = !readOnly,
+                                uploadingPhoto = state.photoUploading || decodingPhoto,
+                                onAvatarClick = { pickImageLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
+                            )
+                            ProfileTabBar(state.tab, palette, onSelect = viewModel::selectTab)
+                            when (state.tab) {
+                                ProfileTab.Overview -> OverviewTab(state, palette)
+                                ProfileTab.Analytics -> AnalyticsTab(state, palette, onMonthChange = viewModel::changeAnalyticsMonth, onYearChange = viewModel::changeAnalyticsYear)
+                                ProfileTab.Achievement -> AchievementTab(state, palette)
+                            }
+                        }
+                        ProfileStickyBar(
+                            name = state.name.ifBlank { "You" },
+                            scrollPx = scroll.value,
+                            topInset = padding.calculateTopPadding(),
+                            onBack = if (readOnly) onBack else null,
+                            onShare = { scope.launch { runCatching { shareProfile(context, state) } } }
+                        )
                     }
                 }
             }
@@ -209,7 +229,7 @@ private fun ProfileScreenContent(
                 pickedRawBitmap = null
             },
             onCancel = { pickedRawBitmap = null },
-            squareByDefault = true
+            circularFrame = true
         )
     }
     }
@@ -217,79 +237,111 @@ private fun ProfileScreenContent(
 
 @Composable
 private fun ProfileHero(
+    topInset: androidx.compose.ui.unit.Dp,
+    barSpace: androidx.compose.ui.unit.Dp,
     state: ProfileUiState,
-    palette: ProfilePalette,
     editable: Boolean,
     uploadingPhoto: Boolean,
     onAvatarClick: () -> Unit
 ) {
+    val dark = triangleDarkTheme()
+    val statColor = if (dark) Color(0xFFB7ACFF) else Color(0xFF5B3FD6)
+    val chipBg = if (dark) Color(0xFF2E2A45) else Color.White
+    val editBg = if (dark) Color(0xFF4A3D8C) else Color(0xFFD9CFFF)
+    val editFg = if (dark) Color(0xFFEDE9FF) else Color(0xFF3B2494)
+
     Column(
         Modifier
             .fillMaxWidth()
-            .background(ProfileColors.Purple)
-            .padding(20.dp, 28.dp, 20.dp, 20.dp)
+            .clip(RoundedCornerShape(bottomStart = 32.dp, bottomEnd = 32.dp))
+            // Room for the sticky top bar that sits over the header (see ProfileStickyBar).
+            .padding(top = topInset + barSpace + 4.dp, bottom = 24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier.size(64.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.2f)).then(
-                    if (editable) Modifier.clickable(onClick = onAvatarClick) else Modifier
-                ),
-                contentAlignment = Alignment.Center
-            ) {
-                if (state.photoUrl != null) {
-                    AsyncImage(
-                        model = state.photoUrl,
-                        contentDescription = "Profile photo",
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize().clip(CircleShape)
-                    )
-                } else {
-                    Text(state.name.firstOrNull()?.uppercase() ?: "?", color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Black)
-                }
-                if (uploadingPhoto) {
-                    Box(Modifier.fillMaxSize().clip(CircleShape).background(Color.Black.copy(alpha = 0.4f)), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(modifier = Modifier.size(22.dp), color = Color.White, strokeWidth = 2.dp)
-                    }
-                }
-                // Once a photo is set, the avatar itself stays tappable to
-                // change it — the little camera badge was only ever needed
-                // to signal "tap here to add one" before a photo existed.
-                if (editable && state.photoUrl == null) {
-                    Box(
-                        Modifier
-                            .align(Alignment.BottomEnd)
-                            .size(22.dp)
-                            .clip(CircleShape)
-                            .background(ProfileColors.Purple)
-                            .clickable(onClick = onAvatarClick),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.Default.PhotoCamera, contentDescription = "Change profile photo", tint = Color.White, modifier = Modifier.size(13.dp))
-                    }
+
+        Box(
+            Modifier
+                .size(80.dp)
+                .clip(CircleShape)
+                .background(editBg)
+                .then(if (editable) Modifier.clickable(onClick = onAvatarClick) else Modifier),
+            contentAlignment = Alignment.Center
+        ) {
+            if (state.photoUrl != null) {
+                AsyncImage(
+                    model = state.photoUrl,
+                    contentDescription = "Profile photo",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize().clip(CircleShape)
+                )
+            } else {
+                Text(state.name.firstOrNull()?.uppercase() ?: "?", color = editFg, fontSize = 32.sp, fontWeight = FontWeight.Bold)
+            }
+            if (uploadingPhoto) {
+                Box(Modifier.fillMaxSize().clip(CircleShape).background(Color.Black.copy(alpha = 0.4f)), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(modifier = Modifier.size(22.dp), color = Color.White, strokeWidth = 2.dp)
                 }
             }
-            Spacer(Modifier.width(14.dp))
-            Column {
-                Text(state.name.ifBlank { "You" }, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
-                Spacer(Modifier.height(2.dp))
-                Text(state.handle, color = Color.White.copy(alpha = 0.75f), fontSize = 12.5.sp)
-            }
         }
-        Spacer(Modifier.height(14.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("Level ${state.level} · ${state.tier}", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-            Text("Rank #${state.rank}", color = Color.White.copy(alpha = 0.85f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-        }
+        Spacer(Modifier.height(16.dp))
+        Text(
+            state.name.ifBlank { "You" },
+            fontSize = 26.sp,
+            fontWeight = FontWeight.Normal,
+            maxLines = 1,
+            modifier = Modifier.padding(horizontal = 24.dp)
+        )
         Spacer(Modifier.height(6.dp))
-        Box(Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)).background(Color.White.copy(alpha = 0.25f))) {
-            Box(Modifier.fillMaxWidth(state.xpIntoLevel / 500f).height(6.dp).clip(RoundedCornerShape(3.dp)).background(Color.White))
+        Text(state.handle, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(20.dp))
+
+        // Three equal-width columns (like the shared picture), so the gaps between them are even.
+        Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp)) {
+            HeroStat("${state.performancePct}%", "performance", statColor, Modifier.weight(1f))
+            HeroStat(state.points.toString(), "points", statColor, Modifier.weight(1f))
+            HeroStat(state.ratingAverage?.let { "%.1f".format(it) } ?: "–", "rating", statColor, Modifier.weight(1f))
         }
-        Spacer(Modifier.height(4.dp))
-        Text("${state.xpIntoLevel} / 500 XP to next level", color = Color.White.copy(alpha = 0.75f), fontSize = 10.5.sp)
+
+        // Level progress: bar with a star at the end, and how far the next level is.
+        Spacer(Modifier.height(24.dp))
+        val trackColor = if (dark) Color(0xFF45397F) else Color(0xFFD3C9F7)
+        val fillColor = if (dark) Color(0xFFA99DFF) else Color(0xFF6D4DE0)
+        val dotColor = if (dark) Color(0xFF1A1440) else Color(0xFF2A1B6B)
+        val levelSize = 500f
+        val fraction = (state.xpIntoLevel / levelSize).coerceIn(0.07f, 1f)
+        val pointsAway = (levelSize.toInt() - state.xpIntoLevel).coerceAtLeast(0)
+        Column(Modifier.fillMaxWidth().padding(horizontal = 22.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.weight(1f).height(22.dp)) {
+                    Box(Modifier.align(Alignment.CenterStart).fillMaxWidth().height(12.dp).clip(RoundedCornerShape(6.dp)).background(trackColor))
+                    Box(Modifier.align(Alignment.CenterEnd).padding(end = 4.dp).size(6.dp).clip(CircleShape).background(dotColor.copy(alpha = 0.7f)))
+                    Box(Modifier.align(Alignment.CenterStart).fillMaxWidth(fraction).height(12.dp).clip(RoundedCornerShape(6.dp)).background(fillColor)) {
+                        Box(Modifier.align(Alignment.CenterEnd).padding(end = 5.dp).size(6.dp).clip(CircleShape).background(dotColor))
+                    }
+                }
+                Spacer(Modifier.width(8.dp))
+                Box(Modifier.size(40.dp).clip(CircleShape).background(trackColor), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.Star, contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp))
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text(pointsAway.toString(), fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Text(" points away from Level ${state.level + 1}", fontSize = 16.sp)
+            }
+        }
         state.photoError?.let {
-            Spacer(Modifier.height(6.dp))
-            Text(it, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(8.dp))
+            Text(it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
         }
+    }
+}
+
+@Composable
+private fun HeroStat(value: String, label: String, color: Color, modifier: Modifier = Modifier) {
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(value, color = color, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+        Text(label, fontSize = 14.sp)
     }
 }
 
@@ -320,6 +372,59 @@ private fun ProfileTabBar(current: ProfileTab, palette: ProfilePalette, onSelect
                     fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold
                 )
+            }
+        }
+    }
+}
+
+private val StickyBarHeight = 56.dp
+
+/**
+ * Own-profile top bar: transparent over the header until the page scrolls, then
+ * it fills in, shows a hairline underneath and fades the name in at the left
+ * (as the big name scrolls away). The share button stays at the right throughout.
+ */
+@Composable
+private fun ProfileStickyBar(name: String, scrollPx: Int, topInset: androidx.compose.ui.unit.Dp, onBack: (() -> Unit)? = null, onShare: () -> Unit) {
+    val dark = triangleDarkTheme()
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val barColor = if (dark) TrianglePageBgDark else Color(0xFFF3E6EE) // matches the page gradient behind the header
+    val chipBg = if (dark) Color(0xFF2E2A45) else Color.White
+    // Bar fills in over the first 24dp of scroll; the name fades in as the avatar passes under it.
+    val barAlpha = (scrollPx / with(density) { 24.dp.toPx() }).coerceIn(0f, 1f)
+    val nameAlpha = ((scrollPx - with(density) { 90.dp.toPx() }) / with(density) { 60.dp.toPx() }).coerceIn(0f, 1f)
+
+    Box(Modifier.fillMaxWidth().height(topInset + StickyBarHeight)) {
+        Box(Modifier.matchParentSize().background(barColor.copy(alpha = barAlpha)))
+        androidx.compose.material3.HorizontalDivider(
+            Modifier.align(Alignment.BottomCenter),
+            thickness = 1.dp,
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = barAlpha)
+        )
+        Row(
+            Modifier.fillMaxWidth().padding(top = topInset).height(StickyBarHeight).padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (onBack != null) {
+                Box(
+                    Modifier.size(44.dp).clip(CircleShape).background(chipBg).clickable(onClick = onBack),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", modifier = Modifier.size(22.dp))
+                }
+                Spacer(Modifier.width(12.dp))
+            }
+            Text(
+                name,
+                fontSize = 22.sp,
+                maxLines = 1,
+                modifier = Modifier.weight(1f).graphicsLayer { alpha = nameAlpha }
+            )
+            Box(
+                Modifier.size(44.dp).clip(CircleShape).background(chipBg).clickable(onClick = onShare),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Default.Share, contentDescription = "Share profile", modifier = Modifier.size(20.dp))
             }
         }
     }

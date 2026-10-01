@@ -7,8 +7,13 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import androidx.core.app.NotificationCompat
+import androidx.core.graphics.drawable.toBitmap
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
+import com.triangle.app.data.RankWatcher
+import com.triangle.app.data.SessionStore
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlin.random.Random
 
 /**
@@ -41,13 +46,29 @@ class TxpMessagingService : FirebaseMessagingService() {
         super.onMessageReceived(message)
 
         val data = message.data
-        val title = data["title"] ?: message.notification?.title ?: "TraineeXP"
-        val body = data["body"] ?: message.notification?.body ?: ""
+        val rawTitle = data["title"] ?: message.notification?.title ?: "TraineeXP"
+        val rawBody = data["body"] ?: message.notification?.body ?: ""
         val type = data["type"] ?: ""
+        // Announcements now live in the Inbox: the phone notification is just "New Inbox: “Title”".
+        val title = when (type) {
+            "announcement" -> "New Inbox: “${rawTitle.trim()}”"
+            "poll" -> "New Poll: “${rawTitle.trim()}”"
+            else -> rawTitle
+        }
+        val body = if (type == "announcement" || type == "poll") "" else rawBody
         val notifId = data["notifId"] ?: ""
         val isAdmin = data["isAdmin"] == "true"
 
         showNotification(title, body, type, notifId, isAdmin)
+
+        // A push is a chance to re-check the leaderboard position in the background (throttled inside RankWatcher).
+        if (type != "rank_change") {
+            val appContext = applicationContext
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                val s = SessionStore.sessionFlow(appContext).first() ?: return@launch
+                RankWatcher.check(appContext, s)
+            }
+        }
     }
 
     private fun showNotification(title: String, body: String, type: String, notifId: String, isAdmin: Boolean) {
@@ -88,18 +109,68 @@ class TxpMessagingService : FirebaseMessagingService() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val notification = NotificationCompat.Builder(this, channelId)
-            .setSmallIcon(R.mipmap.ic_launcher)
-            .setColor(getColor(R.color.notification_color))
+        val systemId = Random.nextInt()
+        val builder = NotificationCompat.Builder(this, channelId)
+            .setSmallIcon(R.drawable.ic_stat_triangle)
+            .setColor(getColor(R.color.notification_purple))
+            .setLargeIcon(androidx.core.content.ContextCompat.getDrawable(this, R.drawable.ic_notification_large)?.toBitmap())
             .setContentTitle(title)
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setContentIntent(pendingIntent)
-            .build()
 
-        nm.notify(Random.nextInt(), notification)
+        // A completed assigned task can be rated straight from the notification. Android notifications can't
+        // show a star widget, so the expanded notification carries two boxed one-tap buttons
+        // ("Excellent 5 ★", "Good 4 ★"), and a "Review…" action opens the full form (any rating + comment).
+        if (type == "task_completed" && notifId.isNotEmpty()) {
+            fun ratePending(stars: Int): PendingIntent {
+                val i = Intent(this, ReviewQuickRateReceiver::class.java).apply {
+                    action = "com.triangle.app.REVIEW_RATE:$notifId:$stars"
+                    putExtra(ReviewQuickRateReceiver.EXTRA_NOTIF_ID, notifId)
+                    putExtra(ReviewQuickRateReceiver.EXTRA_STARS, stars)
+                    putExtra(ReviewQuickRateReceiver.EXTRA_SYSTEM_ID, systemId)
+                }
+                return PendingIntent.getBroadcast(
+                    this, ("rate:$notifId:$stars").hashCode(), i,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+            }
+            val views = android.widget.RemoteViews(packageName, R.layout.notification_review).apply {
+                setTextViewText(R.id.review_title, title)
+                setTextViewText(R.id.review_body, body)
+                setOnClickPendingIntent(R.id.review_rate5, ratePending(5))
+                setOnClickPendingIntent(R.id.review_rate4, ratePending(4))
+            }
+            builder.setStyle(NotificationCompat.DecoratedCustomViewStyle())
+            builder.setCustomBigContentView(views)
+            builder.addAction(NotificationCompat.Action.Builder(0, "Review…", pendingIntent).build())
+        }
+
+        // Chat messages can be answered straight from the notification shade.
+        if (type == "chat_message" && notifId.isNotEmpty()) {
+            val replyIntent = Intent(this, DmReplyReceiver::class.java).apply {
+                action = "com.triangle.app.DM_REPLY:$notifId"
+                putExtra(DmReplyReceiver.EXTRA_NOTIF_ID, notifId)
+                putExtra(DmReplyReceiver.EXTRA_SYSTEM_ID, systemId)
+            }
+            // Must be mutable so the system can attach the typed reply to it.
+            val replyPending = PendingIntent.getBroadcast(
+                this, systemId, replyIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or
+                    (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0)
+            )
+            val remoteInput = androidx.core.app.RemoteInput.Builder(DmReplyReceiver.KEY_REPLY).setLabel("Reply").build()
+            builder.addAction(
+                NotificationCompat.Action.Builder(0, "Reply", replyPending)
+                    .addRemoteInput(remoteInput)
+                    .setSemanticAction(NotificationCompat.Action.SEMANTIC_ACTION_REPLY)
+                    .build()
+            )
+        }
+
+        nm.notify(systemId, builder.build())
     }
 
     companion object {

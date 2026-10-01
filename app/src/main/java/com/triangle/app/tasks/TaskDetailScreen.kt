@@ -64,7 +64,7 @@ import coil.compose.AsyncImage
 import androidx.compose.runtime.LaunchedEffect
 import com.triangle.app.data.HabitPalette
 import com.triangle.app.data.SessionStore
-import com.triangle.app.data.TaskNoteRepository
+import com.triangle.app.ui.components.rememberDriveImageUploader
 import com.triangle.app.data.TaskRepository
 import com.triangle.app.data.UserRepository
 import com.triangle.app.data.models.Task
@@ -90,10 +90,14 @@ fun TaskDetailScreen(
     task: Task,
     canEdit: Boolean,
     onEdit: () -> Unit,
+    onDelete: () -> Unit,
+    onArchive: () -> Unit,
     onAddNote: () -> Unit,
     onBack: () -> Unit,
     highlightOnOpen: Boolean = false
 ) {
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+    var showArchiveConfirm by remember { mutableStateOf(false) }
     val state by viewModel.uiState.collectAsState()
     val done = viewModel.isDone(task, state.completions)
     val color = runCatching { Color(android.graphics.Color.parseColor(task.iconColor ?: HabitPalette.DEFAULT_COLOR)) }
@@ -134,10 +138,11 @@ fun TaskDetailScreen(
     }
     val cameraLauncher = rememberCameraCaptureLauncher { bmp -> rawPhotoForCrop = bmp }
 
+    val driveUploader = rememberDriveImageUploader()
     fun uploadPhotoNote(bmp: Bitmap) {
         scope.launch {
             runCatching {
-                val url = TaskNoteRepository.uploadNotePhoto(session.orgId, session.uid, task.id, bmp)
+                val url = driveUploader.upload(bmp, "TriangleTaskNote_${task.id}_${System.currentTimeMillis()}.jpg")
                 TaskRepository.addNote(
                     session.orgId, task.id,
                     TaskNote(type = "photo", content = url, userId = session.uid, userName = session.name, role = session.role, timestamp = System.currentTimeMillis())
@@ -190,12 +195,21 @@ fun TaskDetailScreen(
                     title = task.title,
                     pillIcon = Icons.Default.Star,
                     pillText = if (task.points > 0) "${task.points} XP" else "—",
-                    actions = listOf(
-                        DetailHeroAction(Icons.Default.NoteAdd, "Add Note", enabled = !done, onClick = onAddNote),
-                        DetailHeroAction(Icons.Default.AddAPhoto, "Add Photo", enabled = !done, onClick = { showPhotoSheet = true })
-                    ),
+                    actions = buildList {
+                        if (com.triangle.app.data.FeatureFlags.isEnabled(com.triangle.app.data.FeatureFlag.TASK_HABIT_NOTES_ENABLED)) {
+                            add(DetailHeroAction(Icons.Default.NoteAdd, "Add Note", enabled = !done, onClick = onAddNote))
+                            add(DetailHeroAction(Icons.Default.AddAPhoto, "Add Photo", enabled = !done, onClick = { showPhotoSheet = true }))
+                        }
+                    },
                     onBack = onBack,
-                    onEdit = if (canEdit) onEdit else null
+                    menuOptions = buildList {
+                        if (canEdit) {
+                            add(DetailMenuOption("Edit", onClick = onEdit))
+                            add(DetailMenuOption("Delete", destructive = true, onClick = { showDeleteConfirm = true }))
+                        } else {
+                            add(DetailMenuOption("Archive", onClick = { showArchiveConfirm = true }))
+                        }
+                    }
                 )
             }
             Column(
@@ -227,6 +241,7 @@ fun TaskDetailScreen(
                             if (task.points > 0) DetailInfoRowChip("Points", "${task.points} XP", color)
                             DetailInfoRow("Task Created", task.createdDate ?: "—")
                             DetailInfoRow("Due Date", task.dueDate ?: "—", valueColor = if (task.dueDate != null) Color(0xFFEF4444) else null)
+                            DetailInfoRow("Reminder", formatReminderTime(task.reminderTime) ?: "Off")
                             DetailInfoRow("Approval", if (task.approvalRequired) "Required" else "Not required", isLast = true)
                         }
                     }
@@ -283,6 +298,26 @@ fun TaskDetailScreen(
         DetailStickyHeader(title = task.title, visible = scrollProgress >= 1f, onBack = onBack)
     }
 
+    if (showDeleteConfirm) {
+        ConfirmDialog(
+            title = "Delete this task?",
+            body = "This can't be undone.",
+            confirmLabel = "Delete",
+            destructive = true,
+            onConfirm = { showDeleteConfirm = false; onDelete(); onBack() },
+            onDismiss = { showDeleteConfirm = false }
+        )
+    }
+    if (showArchiveConfirm) {
+        ConfirmDialog(
+            title = "Archive this task?",
+            body = "It'll be hidden from your lists. You can find it later under Settings > Archived Items.",
+            confirmLabel = "Archive",
+            onConfirm = { showArchiveConfirm = false; onArchive(); onBack() },
+            onDismiss = { showArchiveConfirm = false }
+        )
+    }
+
     if (showPhotoSheet) {
         PhotoSourceSheet(
             onTakePhoto = { showPhotoSheet = false; cameraLauncher() },
@@ -302,7 +337,7 @@ fun TaskDetailScreen(
     lightboxUrl?.let { url ->
         Dialog(onDismissRequest = { lightboxUrl = null }, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
             Box(Modifier.fillMaxSize().background(Color.Black)) {
-                AsyncImage(model = url, contentDescription = "Photo", contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
+                com.triangle.app.ui.components.ZoomableImage(model = url, contentDescription = "Photo")
                 IconButton(onClick = { lightboxUrl = null }, modifier = Modifier.padding(12.dp)) {
                     Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
                 }

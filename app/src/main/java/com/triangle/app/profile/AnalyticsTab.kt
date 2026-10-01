@@ -47,7 +47,7 @@ fun AnalyticsTab(
     onMonthChange: (ProfileStats.MonthRef) -> Unit,
     onYearChange: (Int) -> Unit
 ) {
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(14.dp)) {
+    Column(Modifier.fillMaxWidth().padding(14.dp)) {
         MonthPicker(state.analyticsRef, palette, onMonthChange)
         Spacer(Modifier.height(14.dp))
 

@@ -26,9 +26,9 @@ object TasksHabitsUiPrefs {
     private fun paneKey(uid: String) = intPreferencesKey("lastActivePane_$uid")
     private fun seenKey(uid: String) = stringSetPreferencesKey("seenAssignedHabitIds_$uid")
 
-    /** 0 = Tasks, 1 = Habits. */
+    /** 0 = Tasks, 1 = Habits. Habits is the default until the user has switched panes at least once. */
     suspend fun lastActivePane(context: Context, uid: String): Int =
-        context.tasksHabitsUiDataStore.data.first()[paneKey(uid)] ?: 0
+        context.tasksHabitsUiDataStore.data.first()[paneKey(uid)] ?: 1
 
     /**
      * Live version of lastActivePane() — lets the bottom-nav "Tasks" tab's
@@ -39,7 +39,7 @@ object TasksHabitsUiPrefs {
      * next time this flow re-collects — no shared ViewModel needed.
      */
     fun lastActivePaneFlow(context: Context, uid: String): Flow<Int> =
-        context.tasksHabitsUiDataStore.data.map { it[paneKey(uid)] ?: 0 }
+        context.tasksHabitsUiDataStore.data.map { it[paneKey(uid)] ?: 1 }
 
     suspend fun setLastActivePane(context: Context, uid: String, page: Int) {
         context.tasksHabitsUiDataStore.edit { it[paneKey(uid)] = page }

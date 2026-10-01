@@ -29,6 +29,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -56,7 +57,7 @@ private enum class PermissionChoice { CAN_ASSIGN, CANNOT_ASSIGN, REMOVE }
 @Composable
 fun MemberPermissionsSheet(
     member: CircleMember,
-    onSave: (canAssign: Boolean) -> Unit,
+    onSave: (canAssign: Boolean, canAnnounce: Boolean) -> Unit,
     onRemove: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -64,6 +65,7 @@ fun MemberPermissionsSheet(
     var choice by remember(member.uid) {
         mutableStateOf(if (member.canAssign) PermissionChoice.CAN_ASSIGN else PermissionChoice.CANNOT_ASSIGN)
     }
+    var allowAnnouncements by remember(member.uid) { mutableStateOf(member.canAnnounce) }
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp)) {
@@ -111,13 +113,31 @@ fun MemberPermissionsSheet(
                 accentColor = PermissionRed,
                 onClick = { choice = PermissionChoice.REMOVE }
             )
+            if (choice != PermissionChoice.REMOVE) {
+                Spacer(Modifier.height(14.dp))
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surfaceVariant).padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Allow announcements", fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            "Let ${member.name.substringBefore(' ')} send you announcements. Turn off to stop receiving them.",
+                            fontSize = 11.5.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(checked = allowAnnouncements, onCheckedChange = { allowAnnouncements = it })
+                }
+            }
             Spacer(Modifier.height(20.dp))
 
             Button(
                 onClick = {
                     when (choice) {
-                        PermissionChoice.CAN_ASSIGN -> onSave(true)
-                        PermissionChoice.CANNOT_ASSIGN -> onSave(false)
+                        PermissionChoice.CAN_ASSIGN -> onSave(true, allowAnnouncements)
+                        PermissionChoice.CANNOT_ASSIGN -> onSave(false, allowAnnouncements)
                         PermissionChoice.REMOVE -> onRemove()
                     }
                 },

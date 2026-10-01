@@ -23,15 +23,22 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Surface
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
@@ -72,8 +79,71 @@ data class DetailHeroAction(
     val onClick: () -> Unit
 )
 
+/** One entry in the hero's top-right three-dot overflow menu — see DetailHero's menuOptions. */
+data class DetailMenuOption(
+    val label: String,
+    val destructive: Boolean = false,
+    val onClick: () -> Unit
+)
+
 /**
- * The full colored hero: topbar (back, optional edit), icon ring + title,
+ * Compact overflow popup anchored to the top-right of its parent Box — used instead of
+ * Material's DropdownMenu, whose 112dp minimum width and 48dp rows read as oversized for
+ * a 1-2 item menu. Sizes to its text.
+ */
+@Composable
+fun CompactMenuPopup(options: List<DetailMenuOption>, onDismiss: () -> Unit) {
+    val topOffsetPx = with(androidx.compose.ui.platform.LocalDensity.current) { 42.dp.roundToPx() }
+    Popup(
+        alignment = Alignment.TopEnd,
+        offset = IntOffset(0, topOffsetPx),
+        onDismissRequest = onDismiss,
+        properties = PopupProperties(focusable = true)
+    ) {
+        Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.surface, shadowElevation = 8.dp) {
+            Column(Modifier.width(IntrinsicSize.Max).padding(vertical = 4.dp)) {
+                options.forEach { option ->
+                    Text(
+                        option.label,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = if (option.destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onDismiss(); option.onClick() }
+                            .padding(horizontal = 16.dp, vertical = 10.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** Shared confirm step for the overflow menu's Delete/Archive, so each detail screen doesn't hand-roll its own AlertDialog. */
+@Composable
+fun ConfirmDialog(
+    title: String,
+    body: String,
+    confirmLabel: String,
+    destructive: Boolean = false,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = { Text(body) },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(confirmLabel, color = if (destructive) MaterialTheme.colorScheme.error else Color.Unspecified)
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}
+
+/**
+ * The full colored hero: topbar (back, optional three-dot overflow menu), icon ring + title,
  * and the actions row (left label pill for XP/frequency, right row of
  * circular action buttons) — matches .ntd-hero/.ntd-topbar/.ntd-hero-body/
  * .ntd-hero-actions. No status pill and no description here — both would
@@ -90,7 +160,7 @@ fun DetailHero(
     pillText: String,
     actions: List<DetailHeroAction>,
     onBack: () -> Unit,
-    onEdit: (() -> Unit)? = null
+    menuOptions: List<DetailMenuOption> = emptyList()
 ) {
     Column(Modifier.fillMaxWidth().background(heroColor).padding(bottom = 70.dp)) {
         Row(
@@ -99,9 +169,13 @@ fun DetailHero(
         ) {
             HeroCircleButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White, modifier = Modifier.size(20.dp)) }
             Spacer(Modifier.weight(1f))
-            if (onEdit != null) {
-                HeroCircleButton(onClick = onEdit) {
-                    Icon(Icons.Default.Edit, contentDescription = "Edit", tint = Color.White, modifier = Modifier.size(18.dp))
+            if (menuOptions.isNotEmpty()) {
+                var menuOpen by remember { mutableStateOf(false) }
+                Box {
+                    HeroCircleButton(onClick = { menuOpen = true }) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "More options", tint = Color.White, modifier = Modifier.size(20.dp))
+                    }
+                    if (menuOpen) CompactMenuPopup(menuOptions, onDismiss = { menuOpen = false })
                 }
             }
         }

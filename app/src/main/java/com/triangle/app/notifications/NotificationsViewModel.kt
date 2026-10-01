@@ -2,12 +2,22 @@ package com.triangle.app.notifications
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.triangle.app.data.AnnouncementRepository
 import com.triangle.app.data.ConnectionRepository
 import com.triangle.app.data.NotificationRepository
+import com.triangle.app.data.PollRepository
+import com.triangle.app.data.models.Poll
 import com.triangle.app.data.SessionStore
+import com.triangle.app.data.models.Announcement
 import com.triangle.app.data.models.AppNotification
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.launchIn
@@ -26,6 +36,69 @@ class NotificationsViewModel(private val session: SessionStore.Session) : ViewMo
 
     private val _uiState = MutableStateFlow(NotificationsUiState())
     val uiState: StateFlow<NotificationsUiState> = _uiState.asStateFlow()
+
+    /** Ids of the announcements this user sent — they show up in their own feed as the same card, with an Edit/Delete menu. */
+    val sentIds: StateFlow<Set<String>> = AnnouncementRepository.sentFlow(session.uid)
+        .map { list -> list.map { it.id }.toSet() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    /**
+     * Every announcement in the feed (received via a notification row, or sent by me), kept live
+     * so an edit or recall by the sender shows up in the list immediately. A recalled announcement
+     * simply drops out of the map.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val announcements: StateFlow<Map<String, Announcement>> = combine(
+        NotificationRepository.notificationsFlow(session.orgId, session.uid)
+            .map { list -> list.filter { it.type == "announcement" }.mapNotNull { it.itemId }.toSet() },
+        AnnouncementRepository.sentFlow(session.uid).map { list -> list.map { it.id }.toSet() }
+    ) { received, sent -> received + sent }
+        .flatMapLatest { ids ->
+            if (ids.isEmpty()) flowOf(emptyMap())
+            else combine(ids.map { id -> AnnouncementRepository.announcementFlow(id).map { id to it } }) { pairs ->
+                pairs.mapNotNull { (id, a) -> a?.let { id to it } }.toMap()
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    /** The same two feeds for polls: ids of polls I sent, and every poll in my Inbox (received via a "poll" notification, or sent by me). */
+    val sentPollIds: StateFlow<Set<String>> = PollRepository.sentFlow(session.uid)
+        .map { list -> list.map { it.id }.toSet() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val polls: StateFlow<Map<String, Poll>> = combine(
+        NotificationRepository.notificationsFlow(session.orgId, session.uid)
+            .map { list -> list.filter { it.type == "poll" }.mapNotNull { it.itemId }.toSet() },
+        PollRepository.sentFlow(session.uid).map { list -> list.map { it.id }.toSet() }
+    ) { received, sent -> received + sent }
+        .flatMapLatest { ids ->
+            if (ids.isEmpty()) flowOf(emptyMap())
+            else combine(ids.map { id -> PollRepository.pollFlow(id).map { id to it } }) { pairs ->
+                pairs.mapNotNull { (id, p) -> p?.let { id to it } }.toMap()
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    fun vote(pollId: String, picked: List<Int>) {
+        viewModelScope.launch { runCatching { PollRepository.vote(pollId, session.uid, picked) } }
+    }
+
+    fun closePoll(id: String) {
+        viewModelScope.launch { runCatching { PollRepository.close(session.uid, id) } }
+    }
+
+    fun deletePoll(id: String) {
+        viewModelScope.launch { runCatching { PollRepository.delete(session.uid, id) } }
+    }
+
+    fun editAnnouncement(id: String, title: String, body: String, colorHex: String) {
+        viewModelScope.launch { runCatching { AnnouncementRepository.edit(session.uid, id, title, body, colorHex) } }
+    }
+
+    fun deleteAnnouncement(id: String) {
+        viewModelScope.launch { runCatching { AnnouncementRepository.recall(session.uid, id) } }
+    }
 
     init {
         combine(

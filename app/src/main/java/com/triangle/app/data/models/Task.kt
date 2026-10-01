@@ -21,11 +21,18 @@ import com.triangle.app.data.anyToMapList
  * faithful port of the source app's own `priority` field.
  */
 data class RepeatRule(
-    val freq: String, // "Days" | "Weekdays" | "Weeks" | "Months" | "Years"
+    /** "Days" | "Weekdays" | "Weeks" | "Months" | "Years" | "DaysOfMonth" | "PerPeriod" (the last two are native-only, used by the task form's habit-style frequency). */
+    val freq: String,
     val interval: Int = 1,
-    val days: List<Int> = emptyList() // day-of-week 0-6, only meaningful for "Weeks"
+    val days: List<Int> = emptyList(), // day-of-week 0-6, only meaningful for "Weeks"
+    val dates: List<Int> = emptyList(), // day-of-month 1-31, only meaningful for "DaysOfMonth"
+    val count: Int = 0, // "PerPeriod": how many days per period
+    val unit: String? = null // "PerPeriod": "week" | "month"
 ) {
-    fun toMap(): Map<String, Any?> = mapOf("freq" to freq, "interval" to interval, "days" to days)
+    fun toMap(): Map<String, Any?> = mapOf(
+        "freq" to freq, "interval" to interval, "days" to days,
+        "dates" to dates, "count" to count, "unit" to unit
+    )
 
     companion object {
         fun fromMap(m: Map<*, *>): RepeatRule? {
@@ -33,7 +40,10 @@ data class RepeatRule(
             return RepeatRule(
                 freq = freq,
                 interval = (m["interval"] as? Number)?.toInt() ?: 1,
-                days = (m["days"] as? List<*>)?.mapNotNull { (it as? Number)?.toInt() } ?: emptyList()
+                days = (m["days"] as? List<*>)?.mapNotNull { (it as? Number)?.toInt() } ?: emptyList(),
+                dates = (m["dates"] as? List<*>)?.mapNotNull { (it as? Number)?.toInt() } ?: emptyList(),
+                count = (m["count"] as? Number)?.toInt() ?: 0,
+                unit = m["unit"] as? String
             )
         }
     }
@@ -89,6 +99,8 @@ data class Task(
     val dueDate: String? = null,
     val instanceDate: String? = null,
     val repeat: RepeatRule? = null,
+    /** "HH:mm" 24h time-of-day; only meaningful when dueDate is set (fires once at dueDate+reminderTime). See ReminderScheduler. */
+    val reminderTime: String? = null,
     val isTemplate: Boolean = false,
     val templateId: String? = null,
     val lastGenerated: String? = null,
@@ -104,7 +116,9 @@ data class Task(
     val iconSvg: String? = null,
     val iconColor: String? = null,
     val checklist: List<ChecklistItem> = emptyList(),
-    val notes: List<TaskNote> = emptyList()
+    val notes: List<TaskNote> = emptyList(),
+    /** Hides this copy from the owner's active Tasks panes without deleting it — see Settings > Archived Items. Per-copy, not shared across recipients. */
+    val archived: Boolean = false
 ) {
     /** Same ownership rule as script.js's _taskAppliesTo(t, id). */
     fun appliesTo(id: String): Boolean = assignedTo == id || sharedWith.contains(id)
@@ -115,14 +129,15 @@ data class Task(
     fun toMap(): Map<String, Any?> = mapOf(
         "id" to id, "title" to title, "description" to description, "category" to category,
         "points" to points, "priority" to priority, "dueDate" to dueDate, "instanceDate" to instanceDate,
-        "repeat" to repeat?.toMap(), "isTemplate" to isTemplate, "templateId" to templateId,
+        "repeat" to repeat?.toMap(), "reminderTime" to reminderTime, "isTemplate" to isTemplate, "templateId" to templateId,
         "lastGenerated" to lastGenerated, "paused" to paused,
         "isPersonal" to isPersonal, "createdBy" to createdBy, "assignedTo" to assignedTo, "sharedWith" to sharedWith,
         "createdDate" to createdDate, "createdAt" to createdAt,
         "approvalRequired" to approvalRequired, "approvalContribId" to approvalContribId,
         "iconSvg" to iconSvg, "iconColor" to iconColor,
         "checklist" to checklist.map { it.toMap() },
-        "notes" to notes.map { it.toMap() }
+        "notes" to notes.map { it.toMap() },
+        "archived" to archived
     )
 
     companion object {
@@ -140,6 +155,7 @@ data class Task(
                 dueDate = m["dueDate"] as? String,
                 instanceDate = m["instanceDate"] as? String,
                 repeat = (m["repeat"] as? Map<*, *>)?.let { RepeatRule.fromMap(it) },
+                reminderTime = m["reminderTime"] as? String,
                 isTemplate = m["isTemplate"] == true,
                 templateId = m["templateId"]?.toString(),
                 lastGenerated = m["lastGenerated"] as? String,
@@ -155,7 +171,8 @@ data class Task(
                 iconSvg = m["iconSvg"] as? String,
                 iconColor = m["iconColor"] as? String,
                 checklist = anyToMapList(m["checklist"]).mapNotNull { ChecklistItem.fromMap(it) },
-                notes = anyToMapList(m["notes"]).mapNotNull { TaskNote.fromMap(it) }
+                notes = anyToMapList(m["notes"]).mapNotNull { TaskNote.fromMap(it) },
+                archived = m["archived"] == true
             )
         }
     }

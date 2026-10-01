@@ -44,7 +44,7 @@ import kotlin.math.min
 
 private val DAY_WIDTH = 52.dp
 private val RING_SIZE = 45.dp
-private val RING_STROKE = 3.9.dp
+private val RING_STROKE = 4.2.dp
 
 /**
  * Native port of script.js's _buildDateStrip() — the full calendar month
@@ -64,10 +64,16 @@ fun DateStrip(
     brandColor: Color,
     pctForDate: (LocalDate) -> Int,
     onSelect: (LocalDate) -> Unit,
-    highlightRange: DateSpan? = null
+    highlightRange: DateSpan? = null,
+    /** Header-calendar range: the strip then lists exactly these days, each pill tinted like the Filters range highlight, instead of the whole month. */
+    range: DateSpan? = null
 ) {
     val today = remember { LocalDate.now() }
-    val daysInMonth = remember(selectedDate.year, selectedDate.monthValue) {
+    val daysInMonth = remember(selectedDate.year, selectedDate.monthValue, range) {
+        if (range != null) {
+            val n = java.time.temporal.ChronoUnit.DAYS.between(range.start, range.end).toInt().coerceIn(0, 400)
+            return@remember (0..n).map { range.start.plusDays(it.toLong()) }
+        }
         val first = selectedDate.withDayOfMonth(1)
         val last = selectedDate.withDayOfMonth(selectedDate.lengthOfMonth())
         generateSequence(first) { d -> if (d.isBefore(last)) d.plusDays(1) else null }.toList()
@@ -97,16 +103,17 @@ fun DateStrip(
 
         LazyRow(
             state = listState,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(3.5.dp),
             modifier = Modifier.onSizeChanged { viewportWidthPx = it.width }
         ) {
             itemsIndexed(daysInMonth, key = { _, d -> d.toString() }) { _, date ->
                 DateStripDay(
                     date = date,
                     isToday = date == today,
-                    isSelected = date == selectedDate,
+                    isSelected = range == null && date == selectedDate,
                     isPast = date.isBefore(today),
-                    isInHighlightRange = highlightRange?.contains(date) == true,
+                    isInHighlightRange = range != null || highlightRange?.contains(date) == true,
+                    bandShape = RoundedCornerShape(12.dp),
                     pct = pctForDate(date),
                     brandColor = brandColor,
                     onClick = { onSelect(date) }
@@ -123,12 +130,13 @@ private fun DateStripDay(
     isSelected: Boolean,
     isPast: Boolean,
     isInHighlightRange: Boolean,
+    bandShape: androidx.compose.ui.graphics.Shape,
     pct: Int,
     brandColor: Color,
     onClick: () -> Unit
 ) {
     val dark = triangleDarkTheme()
-    val neutralTrack = MaterialTheme.colorScheme.onSurface.copy(alpha = if (dark) 0.14f else 0.09f)
+    val neutralTrack = MaterialTheme.colorScheme.onSurface.copy(alpha = if (dark) 0.24f else 0.16f)
     val trackColor = when {
         isToday -> brandColor.copy(alpha = 0.15f)
         isSelected -> brandColor.copy(alpha = 0.25f)
@@ -144,7 +152,7 @@ private fun DateStripDay(
     val numColor = when {
         isSelected -> brandColor
         isToday -> MaterialTheme.colorScheme.onSurface
-        else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+        else -> MaterialTheme.colorScheme.onSurface
     }
     val labelWeight = if (isToday || isSelected) FontWeight.Bold else FontWeight.Medium
     val numWeight = if (isToday || isSelected) FontWeight.Black else FontWeight.SemiBold
@@ -153,7 +161,7 @@ private fun DateStripDay(
         modifier = Modifier
             .width(DAY_WIDTH)
             .then(
-                if (isInHighlightRange) Modifier.background(brandColor.copy(alpha = 0.12f), RoundedCornerShape(10.dp))
+                if (isInHighlightRange) Modifier.background(brandColor.copy(alpha = 0.12f), bandShape)
                 else Modifier
             )
             .padding(vertical = 4.dp)

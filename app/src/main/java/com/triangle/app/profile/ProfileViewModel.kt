@@ -12,6 +12,8 @@ import com.google.android.gms.common.api.Scope
 import com.triangle.app.DriveAuthStore
 import com.triangle.app.DriveImageHelper
 import com.triangle.app.data.Badges
+import com.triangle.app.data.ConnectionRepository
+import kotlinx.coroutines.flow.first
 import com.triangle.app.data.DashboardStats
 import com.triangle.app.data.HabitRepository
 import com.triangle.app.data.HabitStats
@@ -45,6 +47,10 @@ data class ProfileUiState(
     val points: Int = 0,
     val xpIntoLevel: Int = 0,
     val rank: Int = 1,
+    /** Size of this person's Circle — shown in the profile header. */
+    val connections: Int = 0,
+    /** Average of the reviews this person received (1..5), null when there are none. */
+    val ratingAverage: Float? = null,
 
     // Overview
     val performancePct: Int = 0,
@@ -144,6 +150,12 @@ class ProfileViewModel private constructor(
                 // `handle`, which the read-only (someone-else's-profile)
                 // constructor doesn't necessarily have (PublicProfileScreen is
                 // reached via a uid/orgId-only nav route, no name in the URL).
+                val connectionCount = runCatching { ConnectionRepository.circleFlow(uid).first().size }.getOrDefault(0)
+                val received = com.triangle.app.data.ReviewRepository.received(uid)
+                _uiState.value = _uiState.value.copy(
+                    connections = connectionCount,
+                    ratingAverage = if (received.isEmpty()) null else received.sumOf { it.stars }.toFloat() / received.size
+                )
                 val record = UserRepository.fetchUserRecord(uid)
                 if (record != null) {
                     _uiState.value = _uiState.value.copy(

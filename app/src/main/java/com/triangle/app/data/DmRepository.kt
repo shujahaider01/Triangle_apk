@@ -4,6 +4,8 @@ import com.google.firebase.database.FirebaseDatabase
 import com.triangle.app.data.models.DmMessage
 import com.triangle.app.data.models.DmThreadMeta
 import com.triangle.app.data.models.DmThreadSummary
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
@@ -25,7 +27,7 @@ import kotlinx.coroutines.tasks.await
  */
 object DmRepository {
     private fun dmData() =
-        FirebaseDatabase.getInstance(TriangleConfig.FIREBASE_URL).getReference("dmData/orgs/${TriangleConfig.DM_ORG_ID}")
+        FirebaseDatabase.getInstance().getReference("dmData/orgs/${TriangleConfig.DM_ORG_ID}")
 
     sealed class SendResult {
         object Success : SendResult()
@@ -64,7 +66,9 @@ object DmRepository {
      * version just as easy to write, so there's no reason to faithfully
      * reproduce the non-atomic version.
      */
-    suspend fun sendMessage(myUid: String, myName: String, otherUid: String, text: String): SendResult {
+    suspend fun sendMessage(myUid: String, myName: String, otherUid: String, text: String, replyToName: String? = null, replyToText: String? = null, replyToId: String? = null,
+        mediaUrl: String? = null, mediaType: String? = null, thumbUrl: String? = null, durationMs: Long? = null
+    ): SendResult {
         val threadId = threadId(myUid, otherUid)
         val root = dmData()
 
@@ -78,7 +82,11 @@ object DmRepository {
         val otherUnread = (root.child("userThreads/$otherUid/$threadId/unreadCount").get().await().value as? Number)?.toInt() ?: 0
 
         val updates: Map<String, Any?> = mapOf(
-            "dmMessages/$threadId/$pushKey" to mapOf("senderId" to myUid, "text" to text, "createdAt" to now),
+            "dmMessages/$threadId/$pushKey" to buildMap<String, Any?> {
+                put("senderId", myUid); put("text", text); put("createdAt", now)
+                if (replyToText != null) { put("replyToName", replyToName ?: ""); put("replyToText", replyToText); if (replyToId != null) put("replyToId", replyToId) }
+                if (mediaUrl != null) { put("mediaUrl", mediaUrl); put("mediaType", mediaType ?: "image"); if (thumbUrl != null) put("thumbUrl", thumbUrl); if (durationMs != null) put("durationMs", durationMs) }
+            },
             "dmThreads/$threadId/participantIds" to listOf(myUid, otherUid).sorted(),
             "dmThreads/$threadId/lastMessage" to text,
             "dmThreads/$threadId/lastMessageAt" to now,
@@ -93,8 +101,54 @@ object DmRepository {
         )
         root.updateChildren(updates).await()
 
-        runCatching { NotificationRepository.notifyDmMessage(otherUid, myUid, myName, text) }
+        runCatching { NotificationRepository.notifyDmMessage(otherUid, myUid, myName, text, messageId = pushKey) }
         return SendResult.Success
+    }
+
+    /** Uploads a chat photo/video to Google Drive (like announcements) and sends it as a message; the text is a "[Photo]"/"[Video]" placeholder for previews and notifications. */
+    suspend fun sendMedia(myUid: String, myName: String, otherUid: String, bytes: ByteArray, mime: String, thumb: ByteArray?, token: String, durationMs: Long? = null): SendResult {
+        val isVideo = mime.startsWith("video/")
+        val isVoice = mime.startsWith("audio/")
+        val stamp = System.currentTimeMillis()
+        val url = withContext(Dispatchers.IO) {
+            com.triangle.app.DriveImageHelper.uploadFile(token, "TriangleChat_${myUid}_$stamp.${if (isVoice) "m4a" else if (isVideo) "mp4" else "jpg"}", mime, bytes)
+        }
+        val thumbUrl = if (isVideo && thumb != null) withContext(Dispatchers.IO) {
+            com.triangle.app.DriveImageHelper.uploadFile(token, "TriangleChat_${myUid}_${stamp}_thumb.jpg", "image/jpeg", thumb)
+        } else null
+        return sendMessage(
+            myUid, myName, otherUid, if (isVoice) "[Voice]" else if (isVideo) "[Video]" else "[Photo]",
+            mediaUrl = url, mediaType = if (isVoice) "voice" else if (isVideo) "video" else "image", thumbUrl = thumbUrl, durationMs = durationMs
+        )
+    }
+
+    /**
+     * Deletes one of MY messages for both people. If it was the newest, the chat list's preview line is
+     * rewound to the message before it (or cleared when none is left).
+     */
+    suspend fun deleteMessage(myUid: String, otherUid: String, messageId: String) {
+        val threadId = threadId(myUid, otherUid)
+        val root = dmData()
+        val msgRef = root.child("dmMessages/$threadId/$messageId")
+        val msg = (msgRef.get().await().value as? Map<*, *>)?.let { DmMessage.fromMap(messageId, it) } ?: return
+        if (msg.senderId != myUid) return
+        msgRef.removeValue().await()
+
+        val remaining = root.child("dmMessages/$threadId").get().await().children
+            .mapNotNull { c -> (c.value as? Map<*, *>)?.let { DmMessage.fromMap(c.key ?: return@let null, it) } }
+            .maxByOrNull { it.createdAt }
+        val preview = remaining?.text ?: ""
+        val at = remaining?.createdAt ?: 0L
+        root.updateChildren(
+            mapOf(
+                "dmThreads/$threadId/lastMessage" to preview,
+                "dmThreads/$threadId/lastMessageAt" to at,
+                "userThreads/$myUid/$threadId/lastMessage" to preview,
+                "userThreads/$myUid/$threadId/lastMessageAt" to at,
+                "userThreads/$otherUid/$threadId/lastMessage" to preview,
+                "userThreads/$otherUid/$threadId/lastMessageAt" to at
+            )
+        ).await()
     }
 
     /** Matches markDmThreadRead() (script.js:1187-1190) — narrow write, own unread count only. */
@@ -106,5 +160,21 @@ object DmRepository {
     suspend fun setBlocked(threadId: String, myUid: String, blocked: Boolean) {
         val ref = dmData().child("dmThreads/$threadId/blockedBy/$myUid")
         if (blocked) ref.setValue(true).await() else ref.removeValue().await()
+    }
+
+    /** When I last cleared this chat (0 = never). Messages at or before it are hidden from me only. */
+    fun clearedAtFlow(myUid: String, threadId: String): Flow<Long> =
+        dmData().child("userThreads/$myUid/$threadId/clearedAt").valueFlow().map { (it.value as? Number)?.toLong() ?: 0L }
+
+    /** Clears the chat for me only: records the time, so older messages stop showing, and blanks my chat-list preview. The other person's copy is untouched. */
+    suspend fun clearChat(myUid: String, otherUid: String) {
+        val threadId = threadId(myUid, otherUid)
+        dmData().updateChildren(
+            mapOf(
+                "userThreads/$myUid/$threadId/clearedAt" to System.currentTimeMillis(),
+                "userThreads/$myUid/$threadId/lastMessage" to "",
+                "userThreads/$myUid/$threadId/unreadCount" to 0
+            )
+        ).await()
     }
 }

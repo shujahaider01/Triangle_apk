@@ -31,6 +31,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -83,6 +84,7 @@ fun SignupScreen(
 
 @Composable
 private fun WelcomeStep(viewModel: AuthViewModel, state: AuthUiState) {
+    val context = LocalContext.current
     var emailPanelOpen by remember { mutableStateOf(false) }
     var email by remember { mutableStateOf("") }
 
@@ -98,7 +100,7 @@ private fun WelcomeStep(viewModel: AuthViewModel, state: AuthUiState) {
 
     AuthButton(
         text = "Continue with Google",
-        onClick = { viewModel.signInWithGoogle() },
+        onClick = { viewModel.signInWithGoogle(context) },
         enabled = !state.isLoading,
         leading = { GoogleGIcon() }
     )

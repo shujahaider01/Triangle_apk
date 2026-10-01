@@ -62,7 +62,7 @@ class BackupRestoreViewModel(private val session: SessionStore.Session) : ViewMo
     val uiState: StateFlow<BackupRestoreUiState> = _uiState.asStateFlow()
 
     private fun orgDataRef() =
-        FirebaseDatabase.getInstance(TriangleConfig.FIREBASE_URL).getReference("organizations/${session.orgId}/data")
+        FirebaseDatabase.getInstance().getReference("organizations/${session.orgId}/data")
 
     fun refreshLocalState(context: Context) {
         _uiState.value = _uiState.value.copy(

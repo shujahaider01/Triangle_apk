@@ -23,11 +23,14 @@ import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.lifecycleScope
 import com.google.firebase.messaging.FirebaseMessaging
+import com.triangle.app.data.FeatureFlags
 import com.triangle.app.data.ThemeMode
 import com.triangle.app.data.ThemeStore
 import com.triangle.app.navigation.AppNavHost
 import com.triangle.app.ui.theme.TriangleTheme
+import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
 
@@ -36,7 +39,10 @@ class MainActivity : AppCompatActivity() {
     // onNewIntent) carried notification-tap extras. AppNavHost's Dashboard
     // route consumes this to route straight to the native Notifications
     // screen — see hasPendingDeepLink()/consumePendingDeepLink() below.
-    private var pendingNotifId: String? = null
+    /** A tapped push (resolved later via [notifId]) or reminder ([reminderKind]+[reminderItemId]) waiting for AppNavHost to route it. */
+    data class PendingDeepLink(val notifId: String?, val reminderKind: String?, val reminderItemId: String?)
+
+    private var pendingLink: PendingDeepLink? = null
 
     // Bumped every time captureDeepLinkExtras() captures a new pending
     // notification id, including a warm-start tap while already sitting on
@@ -55,12 +61,12 @@ class MainActivity : AppCompatActivity() {
     // the double-tap-to-exit behavior.
     var onNativeBackPressed: (() -> Boolean)? = null
 
-    fun hasPendingDeepLink(): Boolean = pendingNotifId != null
+    fun hasPendingDeepLink(): Boolean = pendingLink != null
 
-    fun consumePendingDeepLink(): String? {
-        val id = pendingNotifId
-        pendingNotifId = null
-        return id
+    fun consumePendingDeepLink(): PendingDeepLink? {
+        val link = pendingLink
+        pendingLink = null
+        return link
     }
 
     // ── Back button/gesture: double-tap-to-exit state ──────────────────────
@@ -89,7 +95,7 @@ class MainActivity : AppCompatActivity() {
 
         setContent {
             val context = LocalContext.current
-            val mode by ThemeStore.modeFlow(context).collectAsState(initial = ThemeMode.SYSTEM)
+            val mode by ThemeStore.modeFlow(context).collectAsState(initial = ThemeMode.LIGHT)
             val systemDark = isSystemInDarkTheme()
             val darkTheme = when (mode) {
                 ThemeMode.SYSTEM -> systemDark
@@ -107,12 +113,16 @@ class MainActivity : AppCompatActivity() {
             }
             TriangleTheme(darkTheme = darkTheme) {
                 AppNavHost(activity = this)
+                com.triangle.app.update.UpdatePrompt()
             }
         }
 
         ensureNotificationPermission()
         fetchAndCacheFcmToken()
-        captureDeepLinkExtras(intent)
+        lifecycleScope.launch { FeatureFlags.refreshFromRemote() }
+        // Only on a genuine launch — after a rotation/recreate the same (already handled)
+        // intent extras would otherwise re-navigate to the notification's target.
+        if (savedInstanceState == null) captureDeepLinkExtras(intent)
         registerBackHandling()
     }
 
@@ -183,9 +193,11 @@ class MainActivity : AppCompatActivity() {
 
     // ── Notification-tap deep linking ─────────────────────────────────────
     private fun captureDeepLinkExtras(intent: Intent?) {
-        val notifId = intent?.getStringExtra(TxpMessagingService.EXTRA_NOTIF_ID)
-        if (!notifId.isNullOrEmpty()) {
-            pendingNotifId = notifId
+        val notifId = intent?.getStringExtra(TxpMessagingService.EXTRA_NOTIF_ID)?.takeIf { it.isNotEmpty() }
+        val reminderKind = intent?.getStringExtra(com.triangle.app.reminders.ReminderNotifier.EXTRA_KIND)?.takeIf { it.isNotEmpty() }
+        val reminderItemId = intent?.getStringExtra(com.triangle.app.reminders.ReminderNotifier.EXTRA_ITEM_ID)?.takeIf { it.isNotEmpty() }
+        if (notifId != null || (reminderKind != null && reminderItemId != null)) {
+            pendingLink = PendingDeepLink(notifId, reminderKind, reminderItemId)
             pendingDeepLinkGeneration++
         }
     }

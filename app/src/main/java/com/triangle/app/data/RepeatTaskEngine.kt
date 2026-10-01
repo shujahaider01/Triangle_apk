@@ -69,6 +69,10 @@ object RepeatTaskEngine {
                     assignedTo = tmpl.assignedTo,
                     category = tmpl.category,
                     points = tmpl.points,
+                    priority = tmpl.priority,
+                    iconSvg = tmpl.iconSvg,
+                    iconColor = tmpl.iconColor,
+                    checklist = tmpl.checklist.map { it.copy(done = false) },
                     dueDate = checkDate,
                     approvalRequired = tmpl.approvalRequired,
                     approvalContribId = tmpl.approvalContribId,
@@ -91,6 +95,9 @@ object RepeatTaskEngine {
         return Result(tasks, changed)
     }
 
+    /** Whether [rule] fires on [date], ignoring generation history — used to schedule reminders ahead of time. */
+    fun occursOn(rule: com.triangle.app.data.models.RepeatRule, date: LocalDate): Boolean = shouldGenerateForDate(rule, date.toString(), null)
+
     /** JS's Date.getDay(): 0=Sunday..6=Saturday. */
     private fun DayOfWeek.toJsDow(): Int = this.value % 7
 
@@ -106,6 +113,23 @@ object RepeatTaskEngine {
                 else ChronoUnit.DAYS.between(LocalDate.parse(lastGenerated), checkD) >= interval
             }
             "Weekdays" -> dow in 1..5
+            "DaysOfMonth" -> {
+                val len = checkD.lengthOfMonth()
+                // A date past the end of a short month (e.g. 31 in April) falls on that month's last day.
+                r.dates.any { minOf(it, len) == checkD.dayOfMonth }
+            }
+            "PerPeriod" -> {
+                if (r.unit == "month") {
+                    val len = checkD.lengthOfMonth()
+                    val n = r.count.coerceIn(1, len)
+                    (0 until n).any { (it * len) / n + 1 == checkD.dayOfMonth }
+                } else {
+                    // Spread evenly across the Mon..Sun week (3 per week = Mon, Wed, Fri).
+                    val n = r.count.coerceIn(1, 7)
+                    val idx = (checkD.dayOfWeek.value + 6) % 7 // Monday = 0
+                    (0 until n).any { (it * 7) / n == idx }
+                }
+            }
             "Weeks" -> {
                 if (r.days.isEmpty() || !r.days.contains(dow)) return false
                 if (lastGenerated.isNullOrEmpty()) return true

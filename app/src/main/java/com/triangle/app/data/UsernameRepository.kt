@@ -21,7 +21,7 @@ import kotlin.coroutines.resumeWithException
  * per-account org — same reasoning as DmRepository's DM_ORG_ID.
  */
 object UsernameRepository {
-    private fun db() = FirebaseDatabase.getInstance(TriangleConfig.FIREBASE_URL)
+    private fun db() = FirebaseDatabase.getInstance()
     private fun usernameRef(username: String) = db().getReference("${TriangleConfig.SOCIAL_ROOT}/usernames/${normalize(username)}")
 
     private val VALID_PATTERN = Regex("^[a-z0-9_]{3,20}$")

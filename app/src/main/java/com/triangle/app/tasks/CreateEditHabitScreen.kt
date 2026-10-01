@@ -1,6 +1,8 @@
 package com.triangle.app.tasks
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -44,6 +46,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -53,16 +56,19 @@ import com.triangle.app.data.AssignmentRepository
 import com.triangle.app.data.AutoAssignCycle
 import com.triangle.app.data.ConnectionRepository
 import com.triangle.app.data.HabitPalette
+import com.triangle.app.util.capFirst
 import com.triangle.app.data.HabitRepository
 import com.triangle.app.data.PriorityXp
 import com.triangle.app.data.SessionStore
 import com.triangle.app.data.UserRepository
 import com.triangle.app.data.models.Habit
 import com.triangle.app.data.models.HabitFrequency
+import com.triangle.app.reminders.ReminderPermissions
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import java.time.LocalDate
+import java.time.LocalTime
 
 private val DOW_LABELS = listOf("S", "M", "T", "W", "T", "F", "S") // JS Date.getDay(): 0=Sun..6=Sat
 
@@ -94,13 +100,15 @@ fun CreateEditHabitScreen(
     onSaved: () -> Unit,
     onDeleted: () -> Unit,
     onBack: () -> Unit,
-    onFindPeople: () -> Unit = {}
+    onFindPeople: () -> Unit = {},
+    /** The assigner editing an item they assigned out (it lives in the recipients' orgs, not theirs). */
+    assignerEdit: Boolean = false
 ) {
     val scope = rememberCoroutineScope()
     val isNew = existingHabit == null
     // Same reasoning as CreateEditTaskScreen: for an existing habit, Solo-ness
     // is a fact about the habit's own createdBy, not the nav arg.
-    val effectiveSolo = existingHabit?.let { it.createdBy == null || it.createdBy == session.uid } ?: isSolo
+    val effectiveSolo = !assignerEdit && (existingHabit?.let { it.createdBy == null || it.createdBy == session.uid } ?: isSolo)
 
     var name by remember { mutableStateOf(existingHabit?.name ?: "") }
     var description by remember { mutableStateOf(existingHabit?.description ?: "") }
@@ -128,7 +136,16 @@ fun CreateEditHabitScreen(
     var selectedDates by remember { mutableStateOf((existingHabit?.frequency?.dates ?: emptyList()).toSet()) }
     var periodCount by remember { mutableStateOf(existingHabit?.frequency?.count ?: 3) }
     var periodUnit by remember { mutableStateOf(existingHabit?.frequency?.unit ?: "week") }
+    var allowBackdate by remember { mutableStateOf(existingHabit?.allowBackdate ?: false) }
     var saving by remember { mutableStateOf(false) }
+
+    val context = LocalContext.current
+    var reminderTime by remember { mutableStateOf(existingHabit?.reminderTime) }
+    var reminderEnabled by remember { mutableStateOf(existingHabit?.reminderTime != null) }
+    var showReminderTimePicker by remember { mutableStateOf(false) }
+    val exactAlarmSettingsLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { /* result ignored — ReminderScheduler falls back to an inexact alarm if still not granted */ }
 
     // New habits start on the next color+icon in the auto-assign rotation
     // (matches script.js's _nextAutoColorAndIcon()) instead of always the
@@ -171,6 +188,7 @@ fun CreateEditHabitScreen(
         xpPerCompletion = PriorityXp.xpFor(priority),
         frequency = frequency,
         startDate = LocalDate.now().toString(),
+        reminderTime = if (reminderEnabled) reminderTime else null,
         createdAt = createdAt,
         createdBy = session.uid
     )
@@ -188,8 +206,10 @@ fun CreateEditHabitScreen(
         xpPerCompletion = 0,
         frequency = frequency,
         startDate = LocalDate.now().toString(),
+        reminderTime = if (reminderEnabled) reminderTime else null,
         createdAt = createdAt,
-        createdBy = session.uid
+        createdBy = session.uid,
+        allowBackdate = allowBackdate
     )
 
     // Instant, optimistic Save — see CreateEditTaskScreen's save() doc comment.
@@ -228,11 +248,14 @@ fun CreateEditHabitScreen(
                     color = color,
                     iconSvg = iconSvg,
                     category = category,
-                    frequency = frequency
+                    frequency = frequency,
+                    reminderTime = if (reminderEnabled) reminderTime else null,
+                    allowBackdate = allowBackdate
                 )
             )
         } else {
-            viewModel.updateHabitInBackground(
+            val saveEdit: (Habit) -> Unit = if (assignerEdit) viewModel::updateAssignedHabit else viewModel::updateHabitInBackground
+            saveEdit(
                 existingHabit!!.copy(
                     name = name.trim(),
                     description = description,
@@ -240,7 +263,8 @@ fun CreateEditHabitScreen(
                     iconSvg = iconSvg,
                     priority = priority,
                     xpPerCompletion = PriorityXp.xpFor(priority),
-                    frequency = frequency
+                    frequency = frequency,
+                    reminderTime = if (reminderEnabled) reminderTime else null
                 )
             )
         }
@@ -264,25 +288,16 @@ fun CreateEditHabitScreen(
     }
 
     androidx.compose.material3.Scaffold(
+        containerColor = formPageColor(),
         topBar = {
             androidx.compose.material3.TopAppBar(
+                colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(containerColor = formPageColor()),
                 title = { Text(if (isNew) "New Habit" else "Edit Habit", fontSize = 18.sp, fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                 },
                 actions = {
-                    TextButton(
-                        onClick = { save() },
-                        enabled = name.isNotBlank() && !saving && (!isNew || effectiveSolo || selectedUids.isNotEmpty())
-                    ) {
-                        if (saving) {
-                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                        } else {
-                            Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
-                        }
-                        Spacer(Modifier.width(4.dp))
-                        Text(if (saving) "Saving…" else "Save")
-                    }
+                    FormSaveButton(saving = saving, enabled = name.isNotBlank() && !saving && (!isNew || effectiveSolo || selectedUids.isNotEmpty()), onClick = { save() })
                 }
             )
         }
@@ -299,42 +314,24 @@ fun CreateEditHabitScreen(
             Modifier
                 .fillMaxSize()
                 .padding(scaffoldPadding)
-                .verticalScroll(rememberScrollState())
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp)
+                .formScroll()
+                .padding(horizontal = 12.dp, vertical = 12.dp),
+            verticalArrangement = FormSectionSpacing
         ) {
-            if (!effectiveSolo) {
-                if (isNew) {
-                    AssignSummaryRow(
-                        members = circleMembers,
-                        selectedUids = selectedUids,
-                        onClick = { showAssignScreen = true }
-                    )
-                } else {
-                    Column {
-                        Text("Assigned to", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Spacer(Modifier.height(4.dp))
-                        Text("You", fontSize = 15.sp)
-                    }
-                }
-            }
-
-            OutlinedTextField(
+            FormTextField(
                 value = name,
                 onValueChange = { name = it },
-                label = { Text("Habit name") },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
-                modifier = Modifier.fillMaxWidth()
+                placeholder = "Enter Habit Title",
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words)
             )
-            OutlinedTextField(
+            FormTextField(
                 value = description,
-                onValueChange = { description = it },
-                label = { Text("Description") },
+                onValueChange = { description = it.capFirst() },
+                placeholder = "Enter Description (optional)",
+                singleLine = false,
                 minLines = 2,
                 maxLines = 4,
-                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None),
-                modifier = Modifier.fillMaxWidth()
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences)
             )
 
             IconColorPicker(
@@ -344,28 +341,51 @@ fun CreateEditHabitScreen(
                 onIconSelected = { key, svg -> iconKey = key; iconSvg = svg }
             )
 
-            Column {
-                Text("Frequency", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (!effectiveSolo) {
+                if (isNew) {
+                    FormCard {
+                        AssignSummaryRow(
+                            members = circleMembers,
+                            selectedUids = selectedUids,
+                            onClick = { showAssignScreen = true }
+                        )
+                    }
+                } else {
+                    FormCard {
+                        FormCardTitle("Assigned to")
+                        Spacer(Modifier.height(4.dp))
+                        Text(if (assignerEdit) "Your Circle (changes apply to everyone)" else "You", fontSize = 15.sp)
+                    }
+                }
+            }
+
+            if (effectiveSolo) {
+                FormCard {
+                    FormCardTitle("Select Category")
+                    Spacer(Modifier.height(12.dp))
+                    CategoryChips(session.orgId, category, isNew) { category = it }
+                }
+            } else {
+                FormCard { PriorityPicker(selected = priority, onSelect = { priority = it }) }
+            }
+
+            FormCard {
+                FormCardTitle("Frequency")
                 Spacer(Modifier.height(8.dp))
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.horizontalScroll(rememberScrollState())
-                ) {
+                Column {
                     listOf(
-                        "Every day" to FreqMode.EVERYDAY,
-                        "Specific days" to FreqMode.SPECIFIC_DAYS,
-                        "Days of month" to FreqMode.DAYS_OF_MONTH,
-                        "Some days" to FreqMode.PER_PERIOD
+                        "Everyday" to FreqMode.EVERYDAY,
+                        "Specific Days of Week" to FreqMode.SPECIFIC_DAYS,
+                        "Specific Days of Month" to FreqMode.DAYS_OF_MONTH,
+                        "Some Days Per Period" to FreqMode.PER_PERIOD
                     ).forEach { (label, mode) ->
-                        val active = freqMode == mode
-                        Box(
-                            Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
-                                .clickable { freqMode = mode }
-                                .padding(horizontal = 14.dp, vertical = 8.dp)
+                        Row(
+                            Modifier.fillMaxWidth().clickable { freqMode = mode }.padding(vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(label, fontSize = 13.sp, color = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant)
+                            androidx.compose.material3.RadioButton(selected = freqMode == mode, onClick = { freqMode = mode })
+                            Spacer(Modifier.width(6.dp))
+                            Text(label, fontSize = 16.sp)
                         }
                     }
                 }
@@ -449,30 +469,29 @@ fun CreateEditHabitScreen(
                 }
             }
 
-            if (effectiveSolo) {
-                Column {
-                    Text("Category", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.height(8.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        CATEGORIES.forEach { cat ->
-                            val active = category == cat
-                            Box(
-                                Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
-                                    .clickable { category = cat }
-                                    .padding(horizontal = 14.dp, vertical = 8.dp)
-                            ) {
-                                Text(cat, fontSize = 13.sp, color = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                        }
+            ReminderSection(
+                enabled = reminderEnabled,
+                time = reminderTime,
+                onToggle = { on ->
+                    if (on && !ReminderPermissions.canScheduleExactAlarms(context)) {
+                        exactAlarmSettingsLauncher.launch(ReminderPermissions.exactAlarmSettingsIntent(context))
                     }
-                }
-            } else {
-                PriorityPicker(selected = priority, onSelect = { priority = it })
+                    reminderEnabled = on
+                    if (on && reminderTime == null) showReminderTimePicker = true
+                },
+                onTimeClick = { showReminderTimePicker = true }
+            )
+
+            if (effectiveSolo) {
+                FormToggleCard(
+                    title = "Allow Backdate",
+                    subtitle = "Mark this habit complete on past days",
+                    checked = allowBackdate,
+                    onCheckedChange = { allowBackdate = it }
+                )
             }
 
-            if (!isNew && existingHabit != null) {
+            if (!assignerEdit && !isNew && existingHabit != null) {
                 Spacer(Modifier.height(4.dp))
                 TextButton(onClick = {
                     scope.launch {
@@ -485,5 +504,16 @@ fun CreateEditHabitScreen(
             }
             Spacer(Modifier.height(40.dp))
         }
+    }
+
+    if (showReminderTimePicker) {
+        ReminderTimePickerDialog(
+            initial = reminderTime?.let { runCatching { LocalTime.parse(it) }.getOrNull() },
+            onDismiss = { showReminderTimePicker = false },
+            onConfirm = {
+                reminderTime = it.toString().take(5) // LocalTime.toString() is "HH:mm[:ss]" — keep just "HH:mm"
+                showReminderTimePicker = false
+            }
+        )
     }
 }

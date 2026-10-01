@@ -5,8 +5,10 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -47,90 +49,89 @@ fun IconColorPicker(
     onColorSelected: (String) -> Unit,
     onIconSelected: (key: String, svg: String) -> Unit
 ) {
+    val focus = androidx.compose.ui.platform.LocalFocusManager.current
     var showColors by remember { mutableStateOf(false) }
     var showIcons by remember { mutableStateOf(false) }
     val selectedSvg = HabitPalette.ICONS[selectedIconKey] ?: HabitPalette.ICONS.getValue(HabitPalette.DEFAULT_ICON_KEY)
+    val selectedTint = runCatching { Color(android.graphics.Color.parseColor(selectedColor)) }.getOrDefault(Color.Gray)
 
-    Row(horizontalArrangement = Arrangement.spacedBy(28.dp), verticalAlignment = Alignment.CenterVertically) {
-        androidx.compose.foundation.layout.Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.clickable { showColors = !showColors; if (showColors) showIcons = false }
-        ) {
-            Box(
-                Modifier
-                    .size(44.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
-                contentAlignment = Alignment.Center
+    androidx.compose.foundation.layout.Column {
+        // Two equal columns: a white rounded chip with its label to the right.
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                Modifier.weight(1f).clickable { focus.clearFocus(); showColors = !showColors; if (showColors) showIcons = false },
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(
-                    Modifier
-                        .size(26.dp)
-                        .clip(CircleShape)
-                        .background(runCatching { Color(android.graphics.Color.parseColor(selectedColor)) }.getOrDefault(Color.Gray))
-                )
-            }
-            Spacer(Modifier.height(4.dp))
-            Text("Color", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        androidx.compose.foundation.layout.Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.clickable { showIcons = !showIcons; if (showIcons) showColors = false }
-        ) {
-            Box(
-                Modifier
-                    .size(44.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
-                contentAlignment = Alignment.Center
-            ) {
-                SvgPathIcon(selectedSvg, tint = runCatching { Color(android.graphics.Color.parseColor(selectedColor)) }.getOrDefault(Color.Gray), size = 22.dp)
-            }
-            Spacer(Modifier.height(4.dp))
-            Text("Icon", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
-
-    if (showColors) {
-        Spacer(Modifier.height(10.dp))
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            items(HabitPalette.COLORS) { hex ->
-                val color = runCatching { Color(android.graphics.Color.parseColor(hex)) }.getOrDefault(Color.Gray)
-                val selected = hex.equals(selectedColor, ignoreCase = true)
-                Box(
-                    Modifier
-                        .size(if (selected) 34.dp else 30.dp)
-                        .clip(CircleShape)
-                        .background(color)
-                        .then(if (selected) Modifier.border(3.dp, MaterialTheme.colorScheme.onSurface, CircleShape) else Modifier)
-                        .clickable { onColorSelected(hex) }
-                )
-            }
-        }
-    }
-
-    if (showIcons) {
-        Spacer(Modifier.height(10.dp))
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(7),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.fillMaxWidth().height(340.dp) // taller than the old 42-icon grid needed — 175 icons is ~25 rows, so more are visible per scroll
-        ) {
-            items(HabitPalette.ICONS.entries.toList()) { (key, svg) ->
-                val selected = key == selectedIconKey
-                Box(
-                    Modifier
-                        .aspectRatio(1f)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(
-                            if (selected) runCatching { Color(android.graphics.Color.parseColor(selectedColor)) }.getOrDefault(MaterialTheme.colorScheme.primary)
-                            else MaterialTheme.colorScheme.surfaceVariant
-                        )
-                        .clickable { onIconSelected(key, svg) },
+                    Modifier.size(46.dp).clip(RoundedCornerShape(12.dp)).background(formCardColor()),
                     contentAlignment = Alignment.Center
                 ) {
-                    SvgPathIcon(svg, tint = if (selected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant, size = 18.dp)
+                    Box(Modifier.size(28.dp).clip(CircleShape).background(selectedTint))
+                }
+                Spacer(Modifier.width(14.dp))
+                Text("Color", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+            }
+            Row(
+                Modifier.weight(1f).clickable { focus.clearFocus(); showIcons = !showIcons; if (showIcons) showColors = false },
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    Modifier.size(46.dp).clip(RoundedCornerShape(12.dp)).background(formCardColor()),
+                    contentAlignment = Alignment.Center
+                ) {
+                    SvgPathIcon(selectedSvg, tint = MaterialTheme.colorScheme.onSurface, size = 26.dp)
+                }
+                Spacer(Modifier.width(14.dp))
+                Text("Icon", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+            }
+        }
+
+        if (showColors) {
+            Spacer(Modifier.height(12.dp))
+            FormCard {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    items(HabitPalette.COLORS) { hex ->
+                        val color = runCatching { Color(android.graphics.Color.parseColor(hex)) }.getOrDefault(Color.Gray)
+                        val selected = hex.equals(selectedColor, ignoreCase = true)
+                        Box(
+                            Modifier
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .background(color)
+                                .then(if (selected) Modifier.border(3.dp, MaterialTheme.colorScheme.onSurface, CircleShape) else Modifier)
+                                .clickable { onColorSelected(hex) }
+                        )
+                    }
+                }
+            }
+        }
+
+        if (showIcons) {
+            Spacer(Modifier.height(12.dp))
+            FormCard {
+                // 3 full rows plus half of the 4th so it is obvious the grid scrolls (cell size follows the available width).
+                BoxWithConstraints(Modifier.fillMaxWidth()) {
+                    val cell = (maxWidth - 8.dp * 6) / 7
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(7),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth().height(cell * 3.5f + 8.dp * 3)
+                    ) {
+                        items(HabitPalette.ICONS.entries.toList()) { (key, svg) ->
+                            val selected = key == selectedIconKey
+                            Box(
+                                Modifier
+                                    .aspectRatio(1f)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(if (selected) selectedTint else Color.Transparent)
+                                    .clickable { onIconSelected(key, svg) },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                SvgPathIcon(svg, tint = if (selected) Color.White else MaterialTheme.colorScheme.onSurface, size = 20.dp)
+                            }
+                        }
+                    }
                 }
             }
         }

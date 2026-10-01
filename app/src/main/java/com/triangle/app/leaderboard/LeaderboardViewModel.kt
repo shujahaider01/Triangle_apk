@@ -22,7 +22,7 @@ data class LeaderboardUiState(
     val myUid: String = ""
 )
 
-/** Native port of the data half of renderIndividualLeaderboard()/getIndividualGlobalRanking(). One-shot fetch — source uses a plain fetch(), no realtime subscription. */
+/** Leaderboard of me and my connections only (no global ranking). One-shot fetch, no realtime subscription. */
 class LeaderboardViewModel(private val session: SessionStore.Session) : ViewModel() {
 
     private val _uiState = MutableStateFlow(LeaderboardUiState(myUid = session.uid))
@@ -37,14 +37,14 @@ class LeaderboardViewModel(private val session: SessionStore.Session) : ViewMode
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
             try {
                 coroutineScope {
-                    val entriesDeferred = async { LeaderboardRepository.fetchGlobalRanking() }
+                    val connections = ConnectionRepository.circleFlow(session.uid).first().toSet()
+                    val entriesDeferred = async { LeaderboardRepository.fetchRanking(session.uid, connections) }
                     val oweDeferred = async { LeaderboardRepository.fetchOweAmounts(session.uid, session.orgId) }
-                    val connectionsDeferred = async { ConnectionRepository.circleFlow(session.uid).first() }
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
                         entries = entriesDeferred.await(),
                         oweAmounts = oweDeferred.await(),
-                        connections = connectionsDeferred.await().toSet()
+                        connections = connections
                     )
                 }
             } catch (e: Exception) {

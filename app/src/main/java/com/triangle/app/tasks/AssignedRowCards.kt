@@ -194,6 +194,10 @@ fun AssignedHabitRowCard(
     val mergedCompletions = remember(group) {
         group.members.fold(emptyMap<String, HabitCompletionEntry>()) { acc, member -> acc + member.completions }
     }
+    val dayIntensity = remember(group) {
+        val total = group.members.size.coerceAtLeast(1)
+        group.members.flatMap { it.completions.keys }.groupingBy { it }.eachCount().mapValues { it.value.toFloat() / total }
+    }
     val streak = remember(group) {
         group.members.maxOfOrNull { HabitStats.calcStreak(habit, it.completions).current } ?: 0
     }
@@ -243,7 +247,7 @@ fun AssignedHabitRowCard(
             AssignedProgressBadge(fraction = doneCount.toFloat() / group.members.size, color = color, onClick = onShowProgress)
         }
         Spacer(Modifier.height(12.dp))
-        HabitHeatmapGrid(color = color, completions = mergedCompletions)
+        HabitHeatmapGrid(color = color, completions = mergedCompletions, dayIntensity = dayIntensity)
     }
 }
 

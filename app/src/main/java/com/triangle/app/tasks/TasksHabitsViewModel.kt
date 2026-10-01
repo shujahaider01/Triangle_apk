@@ -6,12 +6,14 @@ import androidx.lifecycle.viewModelScope
 import com.triangle.app.data.AssignmentRepository
 import com.triangle.app.data.HabitRepository
 import com.triangle.app.data.HabitStats
+import com.triangle.app.data.NotificationRepository
 import com.triangle.app.data.SessionStore
 import com.triangle.app.data.TaskRepository
 import com.triangle.app.data.TasksHabitsUiPrefs
 import com.triangle.app.data.models.Habit
 import com.triangle.app.data.models.HabitCompletionEntry
 import com.triangle.app.data.models.Task
+import com.triangle.app.reminders.ReminderScheduler
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -98,7 +100,7 @@ data class StreakLengthFilter(val min: Int, val max: Int?) {
  *   assigned-out group has no per-recipient completion timestamp today, so
  *   it's excluded rather than guessed at) — see taskPasses()/habitPasses()/
  *   assignedTaskGroupPasses()/assignedHabitGroupPasses().
- * - `habitFrequencyTypes`, `habitPerformance`, and `streakLength` only ever
+ * - `habitFrequencyTypes`, `habitPerformance`, and `streakLengths` only ever
  *   narrow Habit rows (Tasks ignore them). `habitFrequencyTypes` is a subset
  *   of Habit.frequency.type ("everyday"/"daysOfWeek"/"daysOfMonth"/
  *   "perPeriod" — the mockup's Daily/Weekly/Monthly/Custom). Performance and
@@ -125,7 +127,8 @@ data class TaskHabitFilters(
     val completedDateRange: DateSpan? = null,
     val habitFrequencyTypes: Set<String> = emptySet(),
     val habitPerformance: Set<HabitPerformance> = emptySet(),
-    val streakLength: StreakLengthFilter? = null,
+    /** Several ranges can be picked at once; a habit matches if its current streak falls in any of them. */
+    val streakLengths: Set<StreakLengthFilter> = emptySet(),
     val dateRangeHighlight: DateSpan? = null
 ) {
     /** How many separate filter categories are set — drives the numbered badge on the filter icon (see DateHeader). */
@@ -139,7 +142,7 @@ data class TaskHabitFilters(
             completedDateRange != null,
             habitFrequencyTypes.isNotEmpty(),
             habitPerformance.isNotEmpty(),
-            streakLength != null,
+            streakLengths.isNotEmpty(),
             dateRangeHighlight != null
         ).count { it }
 
@@ -150,7 +153,9 @@ data class TasksHabitsUiState(
     val isLoading: Boolean = true,
     val error: String? = null,
     val selectedDate: LocalDate = LocalDate.now(),
-    val itemMode: ItemMode = ItemMode.SHARED,
+    /** When set, the Tasks list shows every task dated inside this inclusive range (picked from the header calendar) instead of just selectedDate. */
+    val dateRange: DateSpan? = null,
+    val itemMode: ItemMode = ItemMode.SOLO,
     val sharedSubFilter: SharedSubFilter = SharedSubFilter.ALL,
     /** Solo mode's own category sub-filter — the old fixed Office/Academic/Personal system, now scoped to Solo (self-created, unassigned) items only, via Task.category/Habit.category. */
     val soloCategoryFilter: String = "All", // "All" | "Office" | "Academic" | "Personal"
@@ -159,6 +164,9 @@ data class TasksHabitsUiState(
     val completions: Set<String> = emptySet(),
     /** Task ids whose completion is optimistically shown but not yet committed to Firebase (5s undo window). */
     val optimisticDone: Set<String> = emptySet(),
+    val optimisticHabitDone: Set<String> = emptySet(),
+    /** A streak milestone just reached; the screen shows its "Well done!" card until dismissed. */
+    val streakUnlock: StreakUnlock? = null,
     val visibleHabits: List<HabitRow> = emptyList(),
     val habitCompletions: Map<String, Map<String, HabitCompletionEntry>> = emptyMap(),
     /** Counts for the selected date, BEFORE the sub-filter chips — label the Shared/Solo segment itself (e.g. "Shared (3)"), same "count before the finer filter" idea the old All/Due pill used. */
@@ -178,6 +186,8 @@ data class TasksHabitsUiState(
  * composables.
  */
 class TasksHabitsViewModel(private val session: SessionStore.Session, private val appContext: Context) : ViewModel() {
+
+    val sessionInfo: SessionStore.Session get() = session
 
     private val allTasks = MutableStateFlow<List<Task>>(emptyList())
     private val allCompletions = MutableStateFlow<Set<String>>(emptySet())
@@ -209,16 +219,88 @@ class TasksHabitsViewModel(private val session: SessionStore.Session, private va
     val initialPane: StateFlow<Int?> = _initialPane.asStateFlow()
 
     private val optimisticDoneJobs = mutableMapOf<String, Job>()
+    private val optimisticHabitJobs = mutableMapOf<String, Job>()
+    private val optimisticHabitKeys = mutableMapOf<String, String>()
+    /** User-chosen habit order (Settings > Sorting): habit ids, first = top. Habits not in it (new ones) stay above, newest first. */
+    private val allHabitOrder = MutableStateFlow<List<String>>(emptyList())
+
+    // Reminders: taskId/habitId -> the "signature" (dueDate+reminderTime, or
+    // just reminderTime for a habit) last scheduled for it, so a flow
+    // emission only touches AlarmManager for items whose reminder actually
+    // changed (added, edited, completed, or removed) rather than re-arming
+    // every reminder on every unrelated list change.
+    private val lastScheduledTaskReminder = mutableMapOf<String, String?>()
+    private val lastScheduledHabitReminder = mutableMapOf<String, String?>()
+
+    private fun syncTaskReminders(tasks: List<Task>, completions: Set<String>) {
+        val desired = tasks.associate { task ->
+            val done = completions.contains("${task.id}-${session.uid}")
+            task.id to when {
+                task.isTemplate && task.repeat != null && !task.paused && task.reminderTime != null -> "repeat|${task.repeat.toMap()}|${task.reminderTime}"
+                !done && task.dueDate != null && task.reminderTime != null -> "${task.dueDate}|${task.reminderTime}"
+                else -> null
+            }
+        }
+        val touchedIds = (lastScheduledTaskReminder.keys + desired.keys)
+        touchedIds.forEach { id ->
+            val previous = lastScheduledTaskReminder[id]
+            val next = desired[id]
+            if (previous == next) return@forEach
+            val task = tasks.find { it.id == id }
+            if (next != null && task != null) {
+                ReminderScheduler.scheduleForTask(appContext, session.orgId, task)
+            } else {
+                ReminderScheduler.cancelForTask(appContext, session.orgId, id)
+            }
+        }
+        lastScheduledTaskReminder.keys.retainAll(desired.keys)
+        lastScheduledTaskReminder.putAll(desired)
+    }
+
+    private fun syncHabitReminders(habits: List<Habit>) {
+        val desired = habits.associate { it.id to it.reminderTime }
+        val touchedIds = (lastScheduledHabitReminder.keys + desired.keys)
+        touchedIds.forEach { id ->
+            val previous = lastScheduledHabitReminder[id]
+            val next = desired[id]
+            if (previous == next) return@forEach
+            val habit = habits.find { it.id == id }
+            if (next != null && habit != null) {
+                ReminderScheduler.scheduleForHabit(appContext, session.orgId, habit)
+            } else {
+                ReminderScheduler.cancelForHabit(appContext, session.orgId, id)
+            }
+        }
+        lastScheduledHabitReminder.keys.retainAll(desired.keys)
+        lastScheduledHabitReminder.putAll(desired)
+    }
 
     init {
         viewModelScope.launch {
             runCatching { TaskRepository.materializeRepeatingTasks(session.orgId) }
         }
-        TaskRepository.tasksFlow(session.orgId).onEach { allTasks.value = it }.launchIn(viewModelScope)
+        // Archived copies are hidden here, at the single ingestion point, so every
+        // pane/filter/reminder-sync downstream never sees them (see Settings > Archived Items).
+        TaskRepository.tasksFlow(session.orgId).onEach { allTasks.value = it.filterNot { t -> t.archived } }.launchIn(viewModelScope)
         TaskRepository.completionsFlow(session.orgId).onEach { allCompletions.value = it }.launchIn(viewModelScope)
         TaskRepository.completionTimestampsFlow(session.orgId).onEach { allTaskCompletionTimestamps.value = it }.launchIn(viewModelScope)
-        HabitRepository.habitsFlow(session.orgId).onEach { allHabits.value = it }.launchIn(viewModelScope)
+        HabitRepository.habitsFlow(session.orgId).onEach { allHabits.value = it.filterNot { h -> h.archived } }.launchIn(viewModelScope)
         HabitRepository.habitCompletionsFlow(session.orgId, session.uid).onEach { allHabitCompletions.value = it }.launchIn(viewModelScope)
+        HabitRepository.habitOrderFlow(session.orgId, session.uid).onEach {
+            allHabitOrder.value = it
+            recompute(allTasks.value, allCompletions.value, allHabits.value, allHabitCompletions.value)
+        }.launchIn(viewModelScope)
+
+        // Reminders: react to the live synced state rather than only local
+        // save/delete calls, so this also covers an item that arrived via
+        // cross-org assignment (a recipient's device never calls
+        // saveTaskAssignment/saveSoloTask itself — see ReminderScheduler's
+        // plan doc). Re-schedules on every relevant change (add/edit/
+        // complete/remove) and is a cheap no-op re-arm otherwise.
+        combine(allTasks, allCompletions) { tasks, completions -> tasks to completions }
+            .onEach { (tasks, completions) -> syncTaskReminders(tasks, completions) }
+            .launchIn(viewModelScope)
+        allHabits.onEach { habits -> syncHabitReminders(habits) }.launchIn(viewModelScope)
 
         viewModelScope.launch {
             val receivedHabitIds = runCatching { HabitRepository.habitsFlow(session.orgId).first() }.getOrDefault(emptyList())
@@ -231,7 +313,7 @@ class TasksHabitsViewModel(private val session: SessionStore.Session, private va
                 _initialPane.value = 1
                 runCatching { TasksHabitsUiPrefs.markAssignedHabitsSeen(appContext, session.uid, receivedHabitIds) }
             } else {
-                _initialPane.value = runCatching { TasksHabitsUiPrefs.lastActivePane(appContext, session.uid) }.getOrDefault(0)
+                _initialPane.value = runCatching { TasksHabitsUiPrefs.lastActivePane(appContext, session.uid) }.getOrDefault(1)
             }
         }
 
@@ -333,6 +415,25 @@ class TasksHabitsViewModel(private val session: SessionStore.Session, private va
         viewModelScope.launch { runCatching { TaskRepository.updateTask(session.orgId, task) } }
     }
 
+    /** Assigner edits an item they assigned out: show it instantly, then push to every recipient's copy. */
+    fun updateAssignedTask(edited: Task) {
+        assignedTaskGroups.value = assignedTaskGroups.value.map { if (it.itemId == edited.id) it.copy(task = edited) else it }
+        recompute(allTasks.value, allCompletions.value, allHabits.value, allHabitCompletions.value)
+        viewModelScope.launch {
+            runCatching { AssignmentRepository.updateTaskAssignment(session.uid, edited) }
+            refreshAssignedGroups()
+        }
+    }
+
+    fun updateAssignedHabit(edited: Habit) {
+        assignedHabitGroups.value = assignedHabitGroups.value.map { if (it.itemId == edited.id) it.copy(habit = edited) else it }
+        recompute(allTasks.value, allCompletions.value, allHabits.value, allHabitCompletions.value)
+        viewModelScope.launch {
+            runCatching { AssignmentRepository.updateHabitAssignment(session.uid, edited) }
+            refreshAssignedGroups()
+        }
+    }
+
     /** Same idea as updateTaskInBackground(), for a habit. */
     fun updateHabitInBackground(habit: Habit) {
         viewModelScope.launch { runCatching { HabitRepository.updateHabit(session.orgId, habit) } }
@@ -359,7 +460,10 @@ class TasksHabitsViewModel(private val session: SessionStore.Session, private va
 
     /** Writes a new Solo task directly into this user's own org — no cross-org AssignmentRepository involved, since there's no recipient. */
     fun saveSoloTask(task: Task) {
-        viewModelScope.launch { runCatching { TaskRepository.saveNewTask(session.orgId, task) } }
+        viewModelScope.launch { runCatching {
+            TaskRepository.saveNewTask(session.orgId, task)
+            if (task.repeat != null) TaskRepository.materializeRepeatingTasks(session.orgId)
+        } }
     }
 
     /** Same idea as saveSoloTask(), for a habit. */
@@ -379,8 +483,9 @@ class TasksHabitsViewModel(private val session: SessionStore.Session, private va
         val s = _uiState.value
         val dateStr = s.selectedDate.toString()
         val filters = s.filters
-        val tasksForDate = tasksForDateFrom(tasks, dateStr)
-        val assignedTasksForDate = assignedTasks.filter { taskMatchesDate(it.task, dateStr) }
+        val range = s.dateRange
+        val tasksForDate = if (range != null) tasks.filter { it.appliesTo(session.uid) && taskInRange(it, range) } else tasksForDateFrom(tasks, dateStr)
+        val assignedTasksForDate = assignedTasks.filter { if (range != null) taskInRange(it.task, range) else taskMatchesDate(it.task, dateStr) }
 
         // Own rows split into "Solo" (no other creator on record — including
         // legacy/imported items with no recorded creator) vs "Shared,
@@ -438,10 +543,10 @@ class TasksHabitsViewModel(private val session: SessionStore.Session, private va
                 if (!completedDatePasses(filters, completedAt)) return false
             }
             if (filters.habitFrequencyTypes.isNotEmpty() && habit.frequency.type !in filters.habitFrequencyTypes) return false
-            if (filters.habitPerformance.isNotEmpty() || filters.streakLength != null) {
+            if (filters.habitPerformance.isNotEmpty() || filters.streakLengths.isNotEmpty()) {
                 val habitCompletionsMap = habitCompletions[habit.id] ?: emptyMap()
                 val streak = HabitStats.calcStreak(habit, habitCompletionsMap)
-                if (filters.streakLength != null && !filters.streakLength.contains(streak.current)) return false
+                if (filters.streakLengths.isNotEmpty() && filters.streakLengths.none { it.contains(streak.current) }) return false
                 if (filters.habitPerformance.isNotEmpty()) {
                     val performances = habitPerformancesFor(habit, habitCompletionsMap, streak)
                     if (filters.habitPerformance.none { it in performances }) return false
@@ -461,7 +566,10 @@ class TasksHabitsViewModel(private val session: SessionStore.Session, private va
                 } else emptyList()
                 ownPart + assignedPart
             }
-        }.sortedByDescending { row -> creationSortKeyForRow(row) } // same relationship split and newest-first order as tasks
+        }.sortedWith(
+            compareBy<HabitRow> { row -> habitOrderIndex(row) } // unlisted (new) habits first, then the saved order
+                .thenByDescending { row -> creationSortKeyForRow(row) } // newest-first among unlisted ones
+        )
 
         _uiState.value = s.copy(
             isLoading = false,
@@ -480,6 +588,9 @@ class TasksHabitsViewModel(private val session: SessionStore.Session, private va
         is TaskRow.Own -> creationSortKey(row.task.createdAt, row.task.id)
         is TaskRow.Assigned -> creationSortKey(row.group.task.createdAt, row.group.itemId)
     }
+
+    private fun habitOrderIndex(row: HabitRow): Int =
+        allHabitOrder.value.indexOf(if (row is HabitRow.Own) row.habit.id else (row as HabitRow.Assigned).group.itemId)
 
     private fun creationSortKeyForRow(row: HabitRow): Long = when (row) {
         is HabitRow.Own -> creationSortKey(row.habit.createdAt, row.habit.id)
@@ -582,6 +693,13 @@ class TasksHabitsViewModel(private val session: SessionStore.Session, private va
     }
 
     /** Same date match rule as tasksForDateFrom(), minus the "applies to me" check — an assigned-out group is already scoped to items THIS user handed out. */
+    /** Range counterpart of taskMatchesDate(): an undated task stays visible (as it does on every single day). */
+    private fun taskInRange(task: Task, range: DateSpan): Boolean {
+        if (task.isTemplate) return false
+        val d = (task.instanceDate ?: task.dueDate ?: task.createdDate)?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: return true
+        return range.contains(d)
+    }
+
     private fun taskMatchesDate(task: Task, dateStr: String): Boolean =
         !task.isTemplate && (task.instanceDate ?: task.dueDate ?: task.createdDate ?: dateStr) == dateStr
 
@@ -690,11 +808,53 @@ class TasksHabitsViewModel(private val session: SessionStore.Session, private va
     }
 
     fun selectDate(date: LocalDate) {
-        _uiState.value = _uiState.value.copy(selectedDate = date)
+        _uiState.value = _uiState.value.copy(selectedDate = date, dateRange = null)
         recompute(allTasks.value, allCompletions.value, allHabits.value, allHabitCompletions.value)
     }
 
     fun goToToday() = selectDate(LocalDate.now())
+
+    /** Lists tasks dated anywhere in [start]..[end]; a single day (or null) just selects that day. Habits stay on the range's first day. */
+    fun setDateRange(start: LocalDate, end: LocalDate?) {
+        if (end == null || end == start) { selectDate(start); return }
+        val span = if (end.isBefore(start)) DateSpan(end, start) else DateSpan(start, end)
+        _uiState.value = _uiState.value.copy(selectedDate = span.start, dateRange = span)
+        recompute(allTasks.value, allCompletions.value, allHabits.value, allHabitCompletions.value)
+    }
+
+    /**
+     * Puts the list into a state where this task's row is guaranteed visible — its own date,
+     * the Solo/Shared mode it belongs to, and no narrowing filters — for a notification tap to
+     * scroll to. Returns false while the task hasn't loaded (yet, or ever) so the caller can retry.
+     */
+    fun revealTask(taskId: String): Boolean {
+        val task = allTasks.value.find { it.id == taskId } ?: return false
+        val date = (task.instanceDate ?: task.dueDate ?: task.createdDate)
+            ?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: LocalDate.now()
+        revealAt(date, if (isSoloOwner(task.createdBy)) ItemMode.SOLO else ItemMode.SHARED)
+        return true
+    }
+
+    /** Habit counterpart of [revealTask] — today if the habit is scheduled today, else its next scheduled day. */
+    fun revealHabit(habitId: String): Boolean {
+        val habit = allHabits.value.find { it.id == habitId } ?: return false
+        val today = LocalDate.now()
+        val date = (0L..60L).map { today.plusDays(it) }.firstOrNull { habitScheduledOn(habit, it) } ?: today
+        revealAt(date, if (isSoloOwner(habit.createdBy)) ItemMode.SOLO else ItemMode.SHARED)
+        return true
+    }
+
+    private fun revealAt(date: LocalDate, mode: ItemMode) {
+        _uiState.value = _uiState.value.copy(
+            selectedDate = date,
+            dateRange = null,
+            itemMode = mode,
+            sharedSubFilter = SharedSubFilter.ALL,
+            soloCategoryFilter = "All",
+            filters = TaskHabitFilters()
+        )
+        recompute(allTasks.value, allCompletions.value, allHabits.value, allHabitCompletions.value)
+    }
 
     fun setItemMode(mode: ItemMode) {
         _uiState.value = _uiState.value.copy(itemMode = mode)
@@ -728,8 +888,13 @@ class TasksHabitsViewModel(private val session: SessionStore.Session, private va
     fun completeTaskWithUndo(task: Task, onUndoWindowClosed: () -> Unit = {}) {
         _uiState.value = _uiState.value.copy(optimisticDone = _uiState.value.optimisticDone + task.id)
         val job = viewModelScope.launch {
-            delay(5000)
-            runCatching { TaskRepository.completeTask(session.orgId, session.uid, task) }
+            delay(UNDO_WINDOW_MS)
+            val completed = runCatching { TaskRepository.completeTask(session.orgId, session.uid, task) }.isSuccess
+            // An assigned task: tell the person who assigned it, so they can review it.
+            val assigner = task.createdBy
+            if (completed && assigner != null && assigner != session.uid) {
+                launch { runCatching { NotificationRepository.notifyTaskCompleted(assigner, session.uid, session.name, task.title, task.id) } }
+            }
             _uiState.value = _uiState.value.copy(optimisticDone = _uiState.value.optimisticDone - task.id)
             optimisticDoneJobs.remove(task.id)
             onUndoWindowClosed()
@@ -743,6 +908,7 @@ class TasksHabitsViewModel(private val session: SessionStore.Session, private va
     }
 
     fun deleteTask(taskId: String) {
+        ReminderScheduler.cancelForTask(appContext, session.orgId, taskId)
         viewModelScope.launch { runCatching { TaskRepository.deleteTask(session.orgId, taskId) } }
     }
 
@@ -750,16 +916,86 @@ class TasksHabitsViewModel(private val session: SessionStore.Session, private va
         viewModelScope.launch { runCatching { TaskRepository.toggleChecklistItem(session.orgId, task.id, itemId, done) } }
     }
 
-    fun completeHabitToday(habit: Habit) {
-        viewModelScope.launch {
-            runCatching { HabitRepository.completeHabit(session.orgId, session.uid, habit, LocalDate.now().toString()) }
+    /** Shows as done immediately; the write is deferred for the undo window, like [completeTaskWithUndo]. */
+    fun completeHabitToday(habit: Habit) = completeHabitOn(habit, LocalDate.now())
+
+    /** [date] is today, or a past day for a habit with Allow Backdate on. Optimistic keys are "habitId|date". */
+    fun completeHabitOn(habit: Habit, date: LocalDate) {
+        if (optimisticHabitJobs.containsKey(habit.id)) return
+        val key = "${habit.id}|$date"
+        optimisticHabitKeys[habit.id] = key
+        _uiState.value = _uiState.value.copy(optimisticHabitDone = _uiState.value.optimisticHabitDone + key)
+        optimisticHabitJobs[habit.id] = viewModelScope.launch {
+            delay(UNDO_WINDOW_MS)
+            // Read BEFORE the write: the realtime listener updates allHabitCompletions the instant it lands.
+            val before = allHabitCompletions.value[habit.id] ?: emptyMap()
+            val saved = runCatching { HabitRepository.completeHabit(session.orgId, session.uid, habit, date.toString()) }.isSuccess
+            if (saved) {
+                val after = before + (date.toString() to HabitCompletionEntry(System.currentTimeMillis(), habit.xpPerCompletion))
+                val oldBest = HabitStats.calcStreak(habit, before).best
+                val newBest = HabitStats.calcStreak(habit, after).best
+                val reached = STREAK_MILESTONES.lastOrNull { it > oldBest && it <= newBest }
+                if (reached != null) {
+                    _uiState.value = _uiState.value.copy(streakUnlock = StreakUnlock(habit.name, reached, LocalDate.now()))
+                }
+            }
+            _uiState.value = _uiState.value.copy(optimisticHabitDone = _uiState.value.optimisticHabitDone - key)
+            optimisticHabitJobs.remove(habit.id)
+            optimisticHabitKeys.remove(habit.id)
+        }
+    }
+
+    fun dismissStreakUnlock() {
+        _uiState.value = _uiState.value.copy(streakUnlock = null)
+    }
+
+    fun undoHabitComplete(habit: Habit) {
+        optimisticHabitJobs.remove(habit.id)?.cancel()
+        optimisticHabitKeys.remove(habit.id)?.let { key ->
+            _uiState.value = _uiState.value.copy(optimisticHabitDone = _uiState.value.optimisticHabitDone - key)
         }
     }
 
     fun deleteHabit(habitId: String) {
+        ReminderScheduler.cancelForHabit(appContext, session.orgId, habitId)
         viewModelScope.launch { runCatching { HabitRepository.deleteHabit(session.orgId, habitId) } }
     }
+
+    /** Hides this viewer's own copy from every active pane (see the archived filter in init) — the item and its data stay put, visible under Settings > Archived Items. */
+    fun archiveTask(taskId: String) {
+        ReminderScheduler.cancelForTask(appContext, session.orgId, taskId)
+        viewModelScope.launch {
+            runCatching {
+                TaskRepository.getTask(session.orgId, taskId)?.let { TaskRepository.updateTask(session.orgId, it.copy(archived = true)) }
+            }
+        }
+    }
+
+    fun archiveHabit(habitId: String) {
+        ReminderScheduler.cancelForHabit(appContext, session.orgId, habitId)
+        viewModelScope.launch {
+            runCatching {
+                HabitRepository.getHabit(session.orgId, habitId)?.let { HabitRepository.updateHabit(session.orgId, it.copy(archived = true)) }
+            }
+        }
+    }
+
+    /** Assigner-side delete for everyone — optimistically drops the group from "Assigned by Me" right away, same style as addOptimisticTaskGroup(). */
+    fun deleteTaskAssignment(itemId: String) {
+        assignedTaskGroups.value = assignedTaskGroups.value.filterNot { it.itemId == itemId }
+        viewModelScope.launch { runCatching { AssignmentRepository.deleteTaskAssignment(session.uid, itemId) } }
+    }
+
+    fun deleteHabitAssignment(itemId: String) {
+        assignedHabitGroups.value = assignedHabitGroups.value.filterNot { it.itemId == itemId }
+        viewModelScope.launch { runCatching { AssignmentRepository.deleteHabitAssignment(session.uid, itemId) } }
+    }
+
+    fun completionsFor(habit: Habit): Map<String, HabitCompletionEntry> = allHabitCompletions.value[habit.id] ?: emptyMap()
 
     fun streakFor(habit: Habit): HabitStats.Streak =
         HabitStats.calcStreak(habit, allHabitCompletions.value[habit.id] ?: emptyMap())
 }
+
+// Longer than the confetti (~1.7s) + the snackbar (~4s) so Undo stays available while it's shown.
+private const val UNDO_WINDOW_MS = 7000L

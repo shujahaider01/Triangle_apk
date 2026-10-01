@@ -6,7 +6,7 @@ import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseAuthException
@@ -157,14 +157,21 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // ── Continue with Google (Credential Manager) ───────────────────────────
-    fun signInWithGoogle() {
-        val context = getApplication<Application>()
+    // Takes the caller's Activity context explicitly — CredentialManager
+    // .getCredential() has to display a picker UI, so it throws
+    // "Failed to launch the selector UI ... context parameter is [not] an
+    // Activity based context" if handed the Application context instead
+    // (getApplication<Application>() is wrong here even though it's the
+    // obvious thing to reach for in an AndroidViewModel).
+    fun signInWithGoogle(context: android.content.Context) {
         viewModelScope.launch {
             setLoading(true)
             try {
-                val googleIdOption = GetGoogleIdOption.Builder()
-                    .setFilterByAuthorizedAccounts(false)
-                    .setServerClientId(BuildConfig.GOOGLE_WEB_CLIENT_ID)
+                // Explicit "Sign in with Google" flow: unlike the One Tap bottom
+                // sheet (GetGoogleIdOption) it isn't suppressed when One Tap is
+                // disabled on the device or was dismissed too often, which
+                // surfaced as "failure response from tap: 16 (28439)".
+                val googleIdOption = GetSignInWithGoogleOption.Builder(BuildConfig.GOOGLE_WEB_CLIENT_ID)
                     .build()
                 val request = GetCredentialRequest.Builder()
                     .addCredentialOption(googleIdOption)

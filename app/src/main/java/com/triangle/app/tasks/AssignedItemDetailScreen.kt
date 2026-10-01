@@ -1,6 +1,7 @@
 package com.triangle.app.tasks
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,14 +12,21 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -39,7 +47,8 @@ import com.triangle.app.data.HabitPalette
  * toggle chrome here — just what the task/habit says plus who it went to.
  */
 @Composable
-fun AssignedTaskDetailScreen(group: AssignmentRepository.AssignedTaskGroup, onBack: () -> Unit) {
+fun AssignedTaskDetailScreen(group: AssignmentRepository.AssignedTaskGroup, onEdit: () -> Unit, onDelete: () -> Unit, onBack: () -> Unit) {
+    var showDeleteConfirm by remember { mutableStateOf(false) }
     val task = group.task
     val color = runCatching { Color(android.graphics.Color.parseColor(task.iconColor ?: HabitPalette.DEFAULT_COLOR)) }
         .getOrDefault(MaterialTheme.colorScheme.primary)
@@ -55,7 +64,8 @@ fun AssignedTaskDetailScreen(group: AssignmentRepository.AssignedTaskGroup, onBa
                 pillIcon = Icons.Default.Star,
                 pillText = if (task.points > 0) "${task.points} XP" else "—",
                 actions = emptyList(),
-                onBack = onBack
+                onBack = onBack,
+                menuOptions = listOf(DetailMenuOption("Edit", onClick = onEdit), DetailMenuOption("Delete", destructive = true, onClick = { showDeleteConfirm = true }))
             )
             Column(
                 Modifier
@@ -81,7 +91,8 @@ fun AssignedTaskDetailScreen(group: AssignmentRepository.AssignedTaskGroup, onBa
                     AccordionSection(title = "Details", initiallyOpen = true) {
                         Column {
                             if (task.points > 0) DetailInfoRowChip("Points", "${task.points} XP", color)
-                            DetailInfoRow("Due Date", task.dueDate ?: "—", valueColor = if (task.dueDate != null) Color(0xFFEF4444) else null, isLast = true)
+                            DetailInfoRow("Due Date", task.dueDate ?: "—", valueColor = if (task.dueDate != null) Color(0xFFEF4444) else null)
+                            DetailInfoRow("Reminder", formatReminderTime(task.reminderTime) ?: "Off", isLast = true)
                         }
                     }
                     AccordionSection(title = "Recipients", badge = "${group.doneCount}/${group.members.size}", initiallyOpen = true) {
@@ -94,11 +105,23 @@ fun AssignedTaskDetailScreen(group: AssignmentRepository.AssignedTaskGroup, onBa
             }
         }
     }
+
+    if (showDeleteConfirm) {
+        ConfirmDialog(
+            title = "Delete this task?",
+            body = "This removes it for you and every recipient. This can't be undone.",
+            confirmLabel = "Delete",
+            destructive = true,
+            onConfirm = { showDeleteConfirm = false; onDelete() },
+            onDismiss = { showDeleteConfirm = false }
+        )
+    }
 }
 
 /** Same idea as AssignedTaskDetailScreen, for a habit — see its doc comment. */
 @Composable
-fun AssignedHabitDetailScreen(group: AssignmentRepository.AssignedHabitGroup, dateStr: String, onBack: () -> Unit) {
+fun AssignedHabitDetailScreen(group: AssignmentRepository.AssignedHabitGroup, dateStr: String, onEdit: () -> Unit, onDelete: () -> Unit, onBack: () -> Unit) {
+    var showDeleteConfirm by remember { mutableStateOf(false) }
     val habit = group.habit
     val color = runCatching { Color(android.graphics.Color.parseColor(habit.color)) }.getOrDefault(MaterialTheme.colorScheme.primary)
     val svg = habit.iconSvg ?: HabitPalette.ICONS.getValue(HabitPalette.DEFAULT_ICON_KEY)
@@ -114,7 +137,8 @@ fun AssignedHabitDetailScreen(group: AssignmentRepository.AssignedHabitGroup, da
                 pillIcon = Icons.Default.Star,
                 pillText = "${habit.xpPerCompletion} XP",
                 actions = emptyList(),
-                onBack = onBack
+                onBack = onBack,
+                menuOptions = listOf(DetailMenuOption("Edit", onClick = onEdit), DetailMenuOption("Delete", destructive = true, onClick = { showDeleteConfirm = true }))
             )
             Column(
                 Modifier
@@ -140,6 +164,7 @@ fun AssignedHabitDetailScreen(group: AssignmentRepository.AssignedHabitGroup, da
                     AccordionSection(title = "Details", initiallyOpen = true) {
                         Column {
                             DetailInfoRow("Frequency", frequencyLabel(habit))
+                            DetailInfoRow("Reminder", formatReminderTime(habit.reminderTime) ?: "Off")
                             DetailInfoRow("Habit Created", habit.startDate, isLast = true)
                         }
                     }
@@ -150,6 +175,55 @@ fun AssignedHabitDetailScreen(group: AssignmentRepository.AssignedHabitGroup, da
                     }
                 }
                 Spacer(Modifier.height(40.dp))
+            }
+        }
+    }
+
+    if (showDeleteConfirm) {
+        ConfirmDialog(
+            title = "Delete this habit?",
+            body = "This removes it for you and every recipient. This can't be undone.",
+            confirmLabel = "Delete",
+            destructive = true,
+            onConfirm = { showDeleteConfirm = false; onDelete() },
+            onDismiss = { showDeleteConfirm = false }
+        )
+    }
+}
+
+/** Panel shown over the list when a multi-recipient habit's Analytics is tapped: pick whose analytics to view. */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+fun AssignedHabitPersonSheet(
+    habitName: String,
+    members: List<AssignmentRepository.AssignedHabitMember>,
+    onPick: (AssignmentRepository.AssignedHabitMember) -> Unit,
+    onDismiss: () -> Unit
+) {
+    androidx.compose.material3.ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(Modifier.padding(horizontal = 20.dp).padding(bottom = 24.dp)) {
+            Text("Whose analytics?", fontSize = 18.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+            Spacer(Modifier.height(2.dp))
+            Text(habitName, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(12.dp))
+            members.forEach { m ->
+                androidx.compose.foundation.layout.Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable { onPick(m) }
+                        .padding(vertical = 10.dp, horizontal = 4.dp),
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                ) {
+                    com.triangle.app.ui.components.Avatar(
+                        m.name, m.photoUrl, size = 40.dp,
+                        backgroundColor = com.triangle.app.ui.theme.TriangleBrandPurple.copy(alpha = 0.18f),
+                        textColor = com.triangle.app.ui.theme.TriangleBrandPurple, fontSize = 15.sp
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Text(m.name, fontSize = 16.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    androidx.compose.material3.Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
         }
     }

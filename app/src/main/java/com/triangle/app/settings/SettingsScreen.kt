@@ -21,6 +21,9 @@ import androidx.compose.material.icons.filled.AlternateEmail
 import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Inventory2
+import androidx.compose.material.icons.filled.Category
+import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -55,6 +58,19 @@ import com.triangle.app.data.ThemeMode
 import com.triangle.app.data.ThemeStore
 import com.triangle.app.data.UserRepository
 import com.triangle.app.data.UsernameRepository
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.core.graphics.drawable.toBitmap
+import com.triangle.app.tasks.formCardBorder
+import com.triangle.app.tasks.formCardColor
+import com.triangle.app.tasks.formPageColor
 import com.triangle.app.ui.theme.triangleDarkTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -80,6 +96,9 @@ fun SettingsScreen(
     onOpenNotifications: () -> Unit,
     onOpenChangePassword: () -> Unit,
     onOpenBackupRestore: () -> Unit,
+    onOpenArchivedItems: () -> Unit,
+    onOpenHabitSorting: () -> Unit,
+    onOpenCategories: () -> Unit,
     onSignedOut: () -> Unit,
     onBack: () -> Unit
 ) {
@@ -88,82 +107,122 @@ fun SettingsScreen(
     val dark = triangleDarkTheme()
     val surface2 = if (dark) Color(0xFF1E2738) else Color(0xFFF3F4F6)
     val text2 = if (dark) Color(0xFFA1A1AA) else Color(0xFF6B7280)
-    val themeMode by ThemeStore.modeFlow(context).collectAsState(initial = ThemeMode.SYSTEM)
+    val themeMode by ThemeStore.modeFlow(context).collectAsState(initial = ThemeMode.LIGHT)
     var editingField by remember { mutableStateOf<EditableField?>(null) }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Settings", fontWeight = FontWeight.Bold) },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } }
-            )
+    // Reference look: a back arrow, the app icon + name + version, then white rounded cards of icon / label / chevron rows.
+    val pageBg = formPageColor()
+    val rowText = MaterialTheme.colorScheme.onSurface
+    val iconTint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f)
+    val appIcon = remember { androidx.core.content.ContextCompat.getDrawable(context, com.triangle.app.R.mipmap.ic_launcher)?.toBitmap(192, 192)?.asImageBitmap() }
+    var showThemeDialog by remember { mutableStateOf(false) }
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(pageBg)
+            .statusBarsPadding()
+            .verticalScroll(rememberScrollState())
+    ) {
+        IconButton(onClick = onBack, modifier = Modifier.padding(start = 8.dp, top = 8.dp)) {
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
         }
-    ) { padding ->
-        Column(Modifier.fillMaxWidth().padding(padding).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(surface2).padding(16.dp)) {
-                Text("General", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = text2)
-                Spacer(Modifier.height(4.dp))
-                ProfileFieldRow(Icons.Default.Badge, "Full Name", session.name, text2, editable = true, onClick = { editingField = EditableField.NAME })
-                ProfileFieldRow(Icons.Default.AlternateEmail, "Username", session.username?.let { "@$it" } ?: "Not set", text2, editable = true, onClick = { editingField = EditableField.USERNAME })
-                ProfileFieldRow(Icons.Default.Email, "Email", session.email, text2, editable = false, isLast = true)
+
+        // App icon, name and version.
+        Row(
+            Modifier.fillMaxWidth().padding(top = 22.dp, bottom = 34.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            appIcon?.let {
+                Image(it, contentDescription = null, modifier = Modifier.size(68.dp).clip(RoundedCornerShape(18.dp)))
+            }
+            Spacer(Modifier.width(18.dp))
+            Column {
+                Text("Triangle", fontSize = 34.sp, fontWeight = FontWeight.Bold, color = rowText)
+                Text("Version ${com.triangle.app.BuildConfig.VERSION_NAME}", fontSize = 15.sp, color = text2)
+            }
+        }
+
+        Column(Modifier.padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+            // Account details (tap Full Name / Username to edit).
+            SettingsCard {
+                ProfileFieldRow(Icons.Default.Badge, "Full Name", session.name, text2, iconTint, editable = true, onClick = { editingField = EditableField.NAME })
+                SettingsDivider()
+                ProfileFieldRow(Icons.Default.AlternateEmail, "Username", session.username?.let { "@$it" } ?: "Not set", text2, iconTint, editable = true, onClick = { editingField = EditableField.USERNAME })
+                SettingsDivider()
+                ProfileFieldRow(Icons.Default.Email, "Email", session.email, text2, iconTint, editable = false)
             }
 
-            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(surface2)) {
-                SettingsRow(Icons.Default.Notifications, "Notifications", text2, onClick = onOpenNotifications)
-                SettingsRow(Icons.Default.Lock, "Change Password", text2, onClick = onOpenChangePassword)
-                SettingsRow(Icons.Default.CloudSync, "Backup & Restore", text2, onClick = onOpenBackupRestore)
+            SettingsCard {
+                SettingsRow(Icons.Default.Palette, "Theme", iconTint, trailing = themeLabel(themeMode)) { showThemeDialog = true }
+                SettingsDivider()
+                SettingsRow(Icons.Default.Notifications, "Notifications", iconTint, onClick = onOpenNotifications)
             }
 
-            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(surface2).padding(16.dp)) {
-                Text("Appearance", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = text2)
-                Spacer(Modifier.height(10.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(
-                        "System" to ThemeMode.SYSTEM,
-                        "Light" to ThemeMode.LIGHT,
-                        "Dark" to ThemeMode.DARK
-                    ).forEach { (label, mode) ->
-                        val active = themeMode == mode
-                        Box(
+            SettingsCard {
+                SettingsRow(Icons.Default.SwapVert, "Sorting", iconTint, onClick = onOpenHabitSorting)
+                SettingsDivider()
+                SettingsRow(Icons.Default.Category, "Categories", iconTint, onClick = onOpenCategories)
+                SettingsDivider()
+                SettingsRow(Icons.Default.Inventory2, "Archived Items", iconTint, onClick = onOpenArchivedItems)
+            }
+
+            SettingsCard {
+                SettingsRow(Icons.Default.CloudUpload, "Backup & Restore", iconTint, onClick = onOpenBackupRestore)
+                SettingsDivider()
+                SettingsRow(Icons.Default.Lock, "Change Password", iconTint, onClick = onOpenChangePassword)
+            }
+
+            SettingsCard {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            scope.launch {
+                                SessionStore.clear(context)
+                                FirebaseAuth.getInstance().signOut()
+                                onSignedOut()
+                            }
+                        }
+                        .padding(vertical = 18.dp, horizontal = 20.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null, tint = Color(0xFF4A9EFF))
+                    Spacer(Modifier.size(10.dp))
+                    Text("Sign Out", color = Color(0xFF4A9EFF), fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
+                }
+            }
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+
+    if (showThemeDialog) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showThemeDialog = false },
+            title = { Text("Theme") },
+            text = {
+                Column {
+                    listOf("System default" to ThemeMode.SYSTEM, "Light" to ThemeMode.LIGHT, "Dark" to ThemeMode.DARK).forEach { (label, mode) ->
+                        Row(
                             Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(if (active) MaterialTheme.colorScheme.primary else (if (dark) Color(0xFF2A3242) else Color.White))
-                                .clickable { scope.launch { ThemeStore.setMode(context, mode) } }
-                                .padding(vertical = 10.dp),
-                            contentAlignment = Alignment.Center
+                                .fillMaxWidth()
+                                .clickable { scope.launch { ThemeStore.setMode(context, mode) }; showThemeDialog = false }
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                label,
-                                fontSize = 13.sp,
-                                fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
-                                color = if (active) Color.White else text2
+                            androidx.compose.material3.RadioButton(
+                                selected = themeMode == mode,
+                                onClick = { scope.launch { ThemeStore.setMode(context, mode) }; showThemeDialog = false }
                             )
+                            Text(label, fontSize = 16.sp)
                         }
                     }
                 }
-            }
-
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(surface2)
-                    .clickable {
-                        scope.launch {
-                            SessionStore.clear(context)
-                            FirebaseAuth.getInstance().signOut()
-                            onSignedOut()
-                        }
-                    }
-                    .padding(16.dp),
-                horizontalArrangement = Arrangement.Center
-            ) {
-                Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null, tint = Color(0xFF4A9EFF))
-                Spacer(Modifier.size(8.dp))
-                Text("Sign Out", color = Color(0xFF4A9EFF), fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
-            }
-        }
+            },
+            confirmButton = { TextButton(onClick = { showThemeDialog = false }) { Text("Close") } }
+        )
     }
 
     when (editingField) {
@@ -199,27 +258,49 @@ private fun ProfileFieldRow(
     label: String,
     value: String,
     text2: Color,
+    iconTint: Color,
     editable: Boolean,
-    isLast: Boolean = false,
     onClick: () -> Unit = {}
 ) {
     Row(
         Modifier
             .fillMaxWidth()
             .then(if (editable) Modifier.clickable(onClick = onClick) else Modifier)
-            .padding(vertical = 10.dp),
+            .padding(horizontal = 20.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp)
+        horizontalArrangement = Arrangement.spacedBy(18.dp)
     ) {
-        Icon(icon, contentDescription = null, tint = text2, modifier = Modifier.size(20.dp))
+        Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(24.dp))
         Column(Modifier.weight(1f)) {
-            Text(label, fontSize = 12.sp, color = text2)
-            Text(value.ifBlank { "—" }, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+            Text(label, fontSize = 13.sp, color = text2)
+            Text(value.ifBlank { "—" }, fontSize = 17.sp, fontWeight = FontWeight.Medium)
         }
         if (editable) {
-            Icon(Icons.AutoMirrored.Filled.ArrowForwardIos, contentDescription = "Edit", tint = text2, modifier = Modifier.size(13.dp))
+            Icon(Icons.Default.ChevronRight, contentDescription = "Edit", tint = text2, modifier = Modifier.size(28.dp))
         }
     }
+}
+
+/** White rounded card with a hairline border, holding a group of rows. */
+@Composable
+private fun SettingsCard(content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
+    androidx.compose.material3.Surface(
+        shape = RoundedCornerShape(22.dp),
+        color = formCardColor(),
+        border = androidx.compose.foundation.BorderStroke(1.dp, formCardBorder()),
+        modifier = Modifier.fillMaxWidth()
+    ) { Column(content = content) }
+}
+
+@Composable
+private fun SettingsDivider() {
+    androidx.compose.material3.HorizontalDivider(Modifier.padding(horizontal = 24.dp), thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
+}
+
+private fun themeLabel(mode: ThemeMode) = when (mode) {
+    ThemeMode.SYSTEM -> "System"
+    ThemeMode.LIGHT -> "Light"
+    ThemeMode.DARK -> "Dark"
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -352,14 +433,21 @@ private fun EditUsernameSheet(uid: String, currentUsername: String?, onDismiss: 
 }
 
 @Composable
-private fun SettingsRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, text2: Color, onClick: () -> Unit) {
+private fun SettingsRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    iconTint: Color,
+    trailing: String? = null,
+    onClick: () -> Unit
+) {
     Row(
-        Modifier.fillMaxWidth().clickable { onClick() }.padding(16.dp),
+        Modifier.fillMaxWidth().clickable { onClick() }.padding(horizontal = 20.dp, vertical = 17.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp)
+        horizontalArrangement = Arrangement.spacedBy(18.dp)
     ) {
-        Icon(icon, contentDescription = null, tint = text2)
-        Text(label, fontSize = 15.sp, modifier = Modifier.weight(1f))
-        Icon(Icons.AutoMirrored.Filled.ArrowForwardIos, contentDescription = null, tint = text2, modifier = Modifier.size(14.dp))
+        Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(24.dp))
+        Text(label, fontSize = 18.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+        trailing?.let { Text(it, fontSize = 15.sp, color = iconTint) }
+        Icon(Icons.Default.ChevronRight, contentDescription = null, tint = iconTint, modifier = Modifier.size(28.dp))
     }
 }

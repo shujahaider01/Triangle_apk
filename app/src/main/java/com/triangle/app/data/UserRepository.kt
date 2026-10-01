@@ -14,7 +14,7 @@ import kotlinx.coroutines.tasks.await
  * rest of the app, and vice versa.
  */
 object UserRepository {
-    private val db get() = FirebaseDatabase.getInstance(TriangleConfig.FIREBASE_URL)
+    private val db get() = FirebaseDatabase.getInstance()
 
     data class UserRecord(
         val uid: String,
