@@ -6,13 +6,14 @@ import androidx.compose.ui.graphics.Color
 import com.triangle.app.ui.theme.triangleDarkTheme
 
 /**
- * Design tokens for the DM screens — teal accent matches script.js's
+ * Design tokens for the DM screens — brand-purple accent (was teal, script.js NOTIF_META.chat_message color `#14b8a6`)
  * NOTIF_META.chat_message color (`#14b8a6`, script.js:4692), same
  * "hardcoded tokens per screen" pattern as ProfileTheme.kt.
  */
 object DmColors {
-    val Accent = Color(0xFF14B8A6)
-    val MyBubble = Color(0xFF14B8A6)
+    val Accent = Color(0xFF6D5EF5) // Triangle brand purple
+    /** Soft translucent purple (not solid), so my messages read as tinted rather than filled. */
+    val MyBubble = Color(0xFF6D5EF5).copy(alpha = 0.18f)
     val TheirBubbleDark = Color(0xFF2A3242)
     val TheirBubbleLight = Color(0xFFE5E7EB)
 

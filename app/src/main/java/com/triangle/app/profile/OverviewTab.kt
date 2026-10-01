@@ -38,7 +38,7 @@ import com.triangle.app.data.Badges
 /** Native port of renderInternProfile()'s Overview tab: 4 equal-size KPI cards, Recent Awards, Top Strengths. */
 @Composable
 fun OverviewTab(state: ProfileUiState, palette: ProfilePalette) {
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(14.dp)) {
+    Column(Modifier.fillMaxWidth().padding(14.dp)) {
         // Same content shape (label + big value, no delta line) on all four
         // cards, plus IntrinsicSize.Min rows + fillMaxHeight children, so
         // every card is guaranteed the same size regardless of label length.

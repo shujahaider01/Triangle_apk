@@ -241,6 +241,7 @@ fun TaskDetailScreen(
                             if (task.points > 0) DetailInfoRowChip("Points", "${task.points} XP", color)
                             DetailInfoRow("Task Created", task.createdDate ?: "—")
                             DetailInfoRow("Due Date", task.dueDate ?: "—", valueColor = if (task.dueDate != null) Color(0xFFEF4444) else null)
+                            DetailInfoRow("Reminder", formatReminderTime(task.reminderTime) ?: "Off")
                             DetailInfoRow("Approval", if (task.approvalRequired) "Required" else "Not required", isLast = true)
                         }
                     }
@@ -336,7 +337,7 @@ fun TaskDetailScreen(
     lightboxUrl?.let { url ->
         Dialog(onDismissRequest = { lightboxUrl = null }, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
             Box(Modifier.fillMaxSize().background(Color.Black)) {
-                AsyncImage(model = url, contentDescription = "Photo", contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
+                com.triangle.app.ui.components.ZoomableImage(model = url, contentDescription = "Photo")
                 IconButton(onClick = { lightboxUrl = null }, modifier = Modifier.padding(12.dp)) {
                     Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
                 }

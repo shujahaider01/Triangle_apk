@@ -6,6 +6,8 @@ import android.content.Intent
 import com.triangle.app.data.HabitRepository
 import com.triangle.app.data.SessionStore
 import com.triangle.app.data.TaskRepository
+import com.triangle.app.data.models.Task
+import java.time.LocalDate
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -44,6 +46,11 @@ class ReminderAlarmReceiver : BroadcastReceiver() {
         val task = TaskRepository.getTask(orgId, taskId) ?: return
         if (task.reminderTime == null) return // disabled/edited away since the alarm was scheduled
 
+        if (task.isTemplate && task.repeat != null) {
+            handleRepeatingTask(context, orgId, task)
+            return
+        }
+
         val session = SessionStore.sessionFlow(context).first()
         if (session != null) {
             val doneKey = "$taskId-${session.uid}"
@@ -51,15 +58,35 @@ class ReminderAlarmReceiver : BroadcastReceiver() {
             if (done) return
         }
 
-        ReminderNotifier.show(context, ReminderScheduler.KIND_TASK, task.id, "Task reminder", task.title)
-        // One-shot per decision #4 — no re-arming for tasks.
+        ReminderNotifier.show(context, ReminderScheduler.KIND_TASK, task.id, orgId, "Task reminder", task.title)
+        // One-shot per decision #4 — no re-arming for plain tasks.
+    }
+
+    /**
+     * Repeating task: the alarm belongs to the hidden template. Make sure today's
+     * instance exists, remind about THAT instance (so "Mark completed" completes
+     * today's task, not the template), then arm the next matching day.
+     */
+    private suspend fun handleRepeatingTask(context: Context, orgId: String, template: Task) {
+        runCatching { TaskRepository.materializeRepeatingTasks(orgId) }
+        val instanceId = "ri-${template.id}-${LocalDate.now()}"
+        val instance = TaskRepository.getTask(orgId, instanceId)
+        if (instance != null) {
+            val session = SessionStore.sessionFlow(context).first()
+            val done = session != null &&
+                TaskRepository.completionsFlow(orgId).first().contains("$instanceId-${session.uid}")
+            if (!done) {
+                ReminderNotifier.show(context, ReminderScheduler.KIND_TASK, instance.id, orgId, "Task reminder", instance.title)
+            }
+        }
+        ReminderScheduler.scheduleForTask(context, orgId, template)
     }
 
     private suspend fun handleHabit(context: Context, orgId: String, habitId: String) {
         val habit = HabitRepository.getHabit(orgId, habitId) ?: return
         if (habit.reminderTime == null) return // disabled/edited away since the alarm was scheduled
 
-        ReminderNotifier.show(context, ReminderScheduler.KIND_HABIT, habit.id, "Habit reminder", habit.name)
+        ReminderNotifier.show(context, ReminderScheduler.KIND_HABIT, habit.id, orgId, "Habit reminder", habit.name)
         // Re-arm the next matching occurrence — habits have no exact repeating alarm.
         ReminderScheduler.scheduleForHabit(context, orgId, habit)
     }

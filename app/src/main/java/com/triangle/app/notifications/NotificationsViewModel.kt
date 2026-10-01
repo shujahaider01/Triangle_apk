@@ -5,6 +5,8 @@ import androidx.lifecycle.viewModelScope
 import com.triangle.app.data.AnnouncementRepository
 import com.triangle.app.data.ConnectionRepository
 import com.triangle.app.data.NotificationRepository
+import com.triangle.app.data.PollRepository
+import com.triangle.app.data.models.Poll
 import com.triangle.app.data.SessionStore
 import com.triangle.app.data.models.Announcement
 import com.triangle.app.data.models.AppNotification
@@ -58,6 +60,37 @@ class NotificationsViewModel(private val session: SessionStore.Session) : ViewMo
             }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    /** The same two feeds for polls: ids of polls I sent, and every poll in my Inbox (received via a "poll" notification, or sent by me). */
+    val sentPollIds: StateFlow<Set<String>> = PollRepository.sentFlow(session.uid)
+        .map { list -> list.map { it.id }.toSet() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val polls: StateFlow<Map<String, Poll>> = combine(
+        NotificationRepository.notificationsFlow(session.orgId, session.uid)
+            .map { list -> list.filter { it.type == "poll" }.mapNotNull { it.itemId }.toSet() },
+        PollRepository.sentFlow(session.uid).map { list -> list.map { it.id }.toSet() }
+    ) { received, sent -> received + sent }
+        .flatMapLatest { ids ->
+            if (ids.isEmpty()) flowOf(emptyMap())
+            else combine(ids.map { id -> PollRepository.pollFlow(id).map { id to it } }) { pairs ->
+                pairs.mapNotNull { (id, p) -> p?.let { id to it } }.toMap()
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    fun vote(pollId: String, picked: List<Int>) {
+        viewModelScope.launch { runCatching { PollRepository.vote(pollId, session.uid, picked) } }
+    }
+
+    fun closePoll(id: String) {
+        viewModelScope.launch { runCatching { PollRepository.close(session.uid, id) } }
+    }
+
+    fun deletePoll(id: String) {
+        viewModelScope.launch { runCatching { PollRepository.delete(session.uid, id) } }
+    }
 
     fun editAnnouncement(id: String, title: String, body: String, colorHex: String) {
         viewModelScope.launch { runCatching { AnnouncementRepository.edit(session.uid, id, title, body, colorHex) } }

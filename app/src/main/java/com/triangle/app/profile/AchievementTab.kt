@@ -45,7 +45,7 @@ import com.triangle.app.data.Badges
 fun AchievementTab(state: ProfileUiState, palette: ProfilePalette) {
     var selectedBadge by remember { mutableStateOf<Badges.Badge?>(null) }
 
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(14.dp)) {
+    Column(Modifier.fillMaxWidth().padding(14.dp)) {
         Text("Personal Records", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = palette.text, modifier = Modifier.padding(bottom = 10.dp))
         // "Weeks at #1" replaced with a combined podium-finish count (1st +
         // 2nd + 3rd place weeks) — the big value + small caption below it

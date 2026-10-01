@@ -1,5 +1,6 @@
 package com.triangle.app.announcements
 
+import com.triangle.app.util.capFirst
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
@@ -192,7 +193,7 @@ fun AnnouncementComposeScreen(
         ) {
             OutlinedTextField(
                 value = title,
-                onValueChange = { title = it.take(AnnouncementRepository.TITLE_MAX) },
+                onValueChange = { title = it.take(AnnouncementRepository.TITLE_MAX).capFirst() },
                 label = { Text("Title") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
@@ -205,7 +206,7 @@ fun AnnouncementComposeScreen(
             }
             OutlinedTextField(
                 value = body,
-                onValueChange = { body = it.take(AnnouncementRepository.BODY_MAX) },
+                onValueChange = { body = it.take(AnnouncementRepository.BODY_MAX).capFirst() },
                 label = { Text("Announcement") },
                 supportingText = { Text("${body.length}/${AnnouncementRepository.BODY_MAX}") },
                 minLines = 5,

@@ -78,6 +78,8 @@ object AssignmentRepository {
             writeTaskDeferred.await()
             writeIndexDeferred.await()
         }
+        // A repeating task is a hidden template — create today's instance now instead of waiting for the recipient to reopen the app.
+        if (task.repeat != null) runCatching { TaskRepository.materializeRepeatingTasks(recipientOrgId) }
 
         backgroundScope.launch {
             runCatching { NotificationRepository.notifyTaskAssigned(recipientUid, assignerUid, assignerName, task.title, task.id) }
@@ -245,6 +247,69 @@ object AssignmentRepository {
      * assignedByMe/{assignerUid}/{itemId} index subtree. Per-recipient
      * failures are swallowed so one unreachable org doesn't strand the rest.
      */
+    /**
+     * Assigner-side edit: pushes the editable fields of [edited] onto every
+     * recipient's own copy (same id), leaving per-recipient state alone —
+     * assignedTo, notes, and each checklist item's done flag (matched by id).
+     * Per-recipient failures are swallowed, same as the delete path.
+     */
+    suspend fun updateTaskAssignment(assignerUid: String, edited: Task) = coroutineScope {
+        val entries = readAssignedByMe(assignerUid).filter { it.itemId == edited.id && it.type == "task" }
+        entries.map { entry ->
+            async {
+                runCatching {
+                    val theirs = TaskRepository.getTask(entry.recipientOrgId, edited.id) ?: return@runCatching
+                    val doneIds = theirs.checklist.filter { it.done }.map { it.id }.toSet()
+                    TaskRepository.updateTask(
+                        entry.recipientOrgId,
+                        theirs.copy(
+                            title = edited.title,
+                            description = edited.description,
+                            priority = edited.priority,
+                            points = edited.points,
+                            dueDate = edited.dueDate,
+                            reminderTime = edited.reminderTime,
+                            iconColor = edited.iconColor,
+                            iconSvg = edited.iconSvg,
+                            checklist = edited.checklist.map { it.copy(done = it.id in doneIds) }
+                        )
+                    )
+                }
+            }
+        }.awaitAll()
+        social().child("assignedByMe/$assignerUid/${edited.id}").get().await().children.forEach {
+            runCatching { it.ref.child("title").setValue(edited.title).await() }
+        }
+    }
+
+    /** Same idea as updateTaskAssignment(), for a habit (completions live outside the habit record, so they're untouched). */
+    suspend fun updateHabitAssignment(assignerUid: String, edited: Habit) = coroutineScope {
+        val entries = readAssignedByMe(assignerUid).filter { it.itemId == edited.id && it.type == "habit" }
+        entries.map { entry ->
+            async {
+                runCatching {
+                    val theirs = HabitRepository.getHabit(entry.recipientOrgId, edited.id) ?: return@runCatching
+                    HabitRepository.updateHabit(
+                        entry.recipientOrgId,
+                        theirs.copy(
+                            name = edited.name,
+                            description = edited.description,
+                            color = edited.color,
+                            iconSvg = edited.iconSvg,
+                            priority = edited.priority,
+                            xpPerCompletion = edited.xpPerCompletion,
+                            frequency = edited.frequency,
+                            reminderTime = edited.reminderTime
+                        )
+                    )
+                }
+            }
+        }.awaitAll()
+        social().child("assignedByMe/$assignerUid/${edited.id}").get().await().children.forEach {
+            runCatching { it.ref.child("title").setValue(edited.name).await() }
+        }
+    }
+
     suspend fun deleteTaskAssignment(assignerUid: String, itemId: String) = coroutineScope {
         val entries = readAssignedByMe(assignerUid).filter { it.itemId == itemId && it.type == "task" }
         entries.map { entry -> async { runCatching { TaskRepository.deleteTask(entry.recipientOrgId, itemId) } } }.awaitAll()

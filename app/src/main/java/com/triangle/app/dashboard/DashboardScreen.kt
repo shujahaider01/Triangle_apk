@@ -30,6 +30,10 @@ import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.EmojiEvents
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.EventAvailable
+import androidx.compose.material.icons.outlined.Leaderboard
+import androidx.compose.material.icons.outlined.ListAlt
+import androidx.compose.material.icons.outlined.MailOutline
+import androidx.compose.material.icons.rounded.StarOutline
 import androidx.compose.material.icons.outlined.RateReview
 import androidx.compose.material.icons.outlined.SentimentSatisfied
 import androidx.compose.material3.CircularProgressIndicator
@@ -91,10 +95,12 @@ private data class Category(
     val bg: Color,
     val tint: Color,
     val icon: ImageVector,
-    val onClick: (() -> Unit)? = null
+    val onClick: (() -> Unit)? = null,
+    /** Unread count shown as a red badge on the icon (0 = none). */
+    val badge: Int = 0
 )
 
-private data class AnalyticsCard(val label: String, val value: String, val gradient: List<Color>, val tint: Color)
+private data class AnalyticsCard(val label: String, val value: String, val gradient: List<Color>, val tint: Color, val onClick: (() -> Unit)? = null)
 
 /**
  * Native port of script.js's renderInternDashboard() — same layout, colors
@@ -112,6 +118,9 @@ fun DashboardScreen(
     onOpenDm: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenLeaderboard: () -> Unit,
+    onOpenReviews: () -> Unit,
+    onOpenInbox: () -> Unit,
+    onOpenBacklog: (TasksListMode) -> Unit,
     onOpenCircle: () -> Unit,
     onOpenArchive: () -> Unit
 ) {
@@ -122,7 +131,7 @@ fun DashboardScreen(
     val state by viewModel.uiState.collectAsState()
     val dark = triangleDarkTheme()
     val context = LocalContext.current
-    val tasksNavPane by TasksHabitsUiPrefs.lastActivePaneFlow(context.applicationContext, session.uid).collectAsState(initial = 0)
+    val tasksNavPane by TasksHabitsUiPrefs.lastActivePaneFlow(context.applicationContext, session.uid).collectAsState(initial = 1)
 
     Box(Modifier.fillMaxSize()) {
     Scaffold(
@@ -145,7 +154,7 @@ fun DashboardScreen(
                 state.error != null -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
                     Text(state.error ?: "Something went wrong", color = MaterialTheme.colorScheme.error)
                 }
-                else -> DashboardContent(state, padding, dark, onOpenNotifications, onOpenDm, { menuOpen = true }, onOpenLeaderboard, onOpenCircle)
+                else -> DashboardContent(state, padding, dark, onOpenNotifications, onOpenDm, { menuOpen = true }, onOpenLeaderboard, onOpenReviews, onOpenInbox, onOpenBacklog, onOpenCircle)
             }
         }
     }
@@ -177,6 +186,9 @@ private fun DashboardContent(
     onOpenDm: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenLeaderboard: () -> Unit,
+    onOpenReviews: () -> Unit,
+    onOpenInbox: () -> Unit,
+    onOpenBacklog: (TasksListMode) -> Unit,
     onOpenCircle: () -> Unit
 ) {
     val text2 = if (dark) Text2Dark else Text2Light
@@ -214,7 +226,15 @@ private fun DashboardContent(
             }
             if (com.triangle.app.data.FeatureFlags.isEnabled(com.triangle.app.data.FeatureFlag.DM_ENABLED)) {
                 Spacer(Modifier.width(10.dp))
-                HeaderIconButton(Icons.Outlined.ChatBubbleOutline, "Messages", dark, onOpenDm)
+                androidx.compose.material3.BadgedBox(badge = {
+                    if (state.unreadDmCount > 0) {
+                        androidx.compose.material3.Badge(modifier = Modifier.offset(x = (-4).dp, y = 4.dp)) {
+                            Text(if (state.unreadDmCount > 9) "9+" else state.unreadDmCount.toString())
+                        }
+                    }
+                }) {
+                    HeaderIconButton(Icons.Outlined.ChatBubbleOutline, "Messages", dark, onOpenDm)
+                }
             }
         }
 
@@ -291,9 +311,11 @@ private fun DashboardContent(
             val comingSoonContext = androidx.compose.ui.platform.LocalContext.current
             fun comingSoonToast() = android.widget.Toast.makeText(comingSoonContext, "Coming soon!", android.widget.Toast.LENGTH_SHORT).show()
             val categories = listOf(
-                Category("Leaderboard", true, Color(0xFFFEF3C7), Color(0xFFD97706), icon = Icons.Outlined.EmojiEvents, onClick = onOpenLeaderboard),
+                Category("Leaderboard", true, Color(0xFFFFF1CC), Color(0xFFD97706), icon = Icons.Outlined.Leaderboard, onClick = onOpenLeaderboard),
+                Category("Reviews", true, Color(0xFFFFF1CC), Color(0xFFF5A623), icon = Icons.Rounded.StarOutline, onClick = onOpenReviews),
+                Category("Inbox", true, Color(0xFFDBEAFE), Color(0xFF2563EB), icon = Icons.Outlined.MailOutline, onClick = onOpenInbox, badge = state.unreadInboxCount),
+                Category("Backlog", true, Color(0xFFEDE9FE), Color(0xFF6D5EF5), icon = Icons.Outlined.ListAlt, onClick = { onOpenBacklog(TasksListMode.ALL) }),
                 Category("Moods", false, Color(0xFFEDE9FE), Color(0xFF8B5CF6), icon = Icons.Outlined.SentimentSatisfied, onClick = ::comingSoonToast),
-                Category("Reviews", false, Color(0xFFDCFCE7), Color(0xFF22C55E), icon = Icons.Outlined.RateReview, onClick = ::comingSoonToast),
                 Category("Attendance", false, Color(0xFFFDE2E2), Color(0xFFEF4444), icon = Icons.Outlined.EventAvailable, onClick = ::comingSoonToast)
             )
             Row(
@@ -313,14 +335,21 @@ private fun DashboardContent(
                             .clickable { cat.onClick?.invoke() },
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Box(
-                            Modifier
-                                .size(52.dp)
-                                .clip(CircleShape)
-                                .background(cat.bg.copy(alpha = alpha)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(cat.icon, contentDescription = cat.name, tint = cat.tint.copy(alpha = alpha), modifier = Modifier.size(24.dp))
+                        Box(contentAlignment = Alignment.TopEnd) {
+                            Box(
+                                Modifier
+                                    .size(52.dp)
+                                    .clip(CircleShape)
+                                    .background(cat.bg.copy(alpha = alpha)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(cat.icon, contentDescription = cat.name, tint = cat.tint.copy(alpha = alpha), modifier = Modifier.size(24.dp))
+                            }
+                            if (cat.badge > 0) {
+                                androidx.compose.material3.Badge(modifier = Modifier.offset(x = 4.dp, y = (-2).dp)) {
+                                    Text(if (cat.badge > 9) "9+" else cat.badge.toString())
+                                }
+                            }
                         }
                         Spacer(Modifier.height(7.dp))
                         Text(
@@ -341,11 +370,11 @@ private fun DashboardContent(
             Spacer(Modifier.height(10.dp))
 
             val cards = listOf(
-                AnalyticsCard("Total Tasks", state.totalTasksAll.toLocaleString(), listOf(Color(0xFFEFEAFD), Color(0xFFF8F7FE)), Color(0xFF6D5EF5)),
-                AnalyticsCard("Tasks Completed", state.tasksCompleted.toLocaleString(), listOf(Color(0xFFE0F7FA), Color(0xFFF2FCFD)), Color(0xFF06B6D4)),
-                AnalyticsCard("XP This Week", state.weeklyXP.toLocaleString(), listOf(Color(0xFFFDEEEE), Color(0xFFFEF8F8)), Color(0xFFEF4444)),
+                AnalyticsCard("Total Tasks", state.totalTasksAll.toLocaleString(), listOf(Color(0xFFEFEAFD), Color(0xFFF8F7FE)), Color(0xFF6D5EF5), onClick = { onOpenBacklog(TasksListMode.ALL) }),
+                AnalyticsCard("Tasks Completed", state.tasksCompleted.toLocaleString(), listOf(Color(0xFFE0F7FA), Color(0xFFF2FCFD)), Color(0xFF06B6D4), onClick = { onOpenBacklog(TasksListMode.COMPLETED) }),
+                AnalyticsCard("Pending Tasks", (state.totalTasksAll - state.tasksCompleted).coerceAtLeast(0).toLocaleString(), listOf(Color(0xFFFFF4E0), Color(0xFFFFFAF0)), Color(0xFFF59E0B), onClick = { onOpenBacklog(TasksListMode.PENDING) }),
+                AnalyticsCard("Points This Week", state.weeklyXP.toLocaleString(), listOf(Color(0xFFFDEEEE), Color(0xFFFEF8F8)), Color(0xFFEF4444)),
                 AnalyticsCard("Current Streak", state.currentStreak.toString(), listOf(Color(0xFFFFF1E2), Color(0xFFFFFAF3)), Color(0xFFF97316)),
-                AnalyticsCard("Longest Streak", state.longestStreak.toString(), listOf(Color(0xFFE9FBEF), Color(0xFFF6FDF8)), Color(0xFF22C55E)),
                 AnalyticsCard("Current Rank", "#${state.rank}", listOf(Color(0xFFEAF2FE), Color(0xFFF6FAFE)), Color(0xFF3B82F6))
             )
             // Hand-rolled 2-column grid (not LazyVerticalGrid) — a fixed
@@ -364,6 +393,7 @@ private fun DashboardContent(
                                     .aspectRatio(1.96f)
                                     .clip(RoundedCornerShape(16.dp))
                                     .background(if (cardBg != null) Brush.linearGradient(listOf(cardBg, cardBg)) else Brush.linearGradient(card.gradient))
+                                    .then(if (card.onClick != null) Modifier.clickable { card.onClick.invoke() } else Modifier)
                                     .padding(14.dp, 12.dp, 14.dp, 12.dp),
                                 verticalArrangement = Arrangement.Bottom
                             ) {

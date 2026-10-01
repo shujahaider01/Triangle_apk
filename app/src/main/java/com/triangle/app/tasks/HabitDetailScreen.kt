@@ -95,6 +95,7 @@ fun HabitDetailScreen(
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var showArchiveConfirm by remember { mutableStateOf(false) }
     val streak = viewModel.streakFor(habit)
+    val habitCompletionsMap = viewModel.completionsFor(habit)
     val today = LocalDate.now().toString()
 
     val color = runCatching { Color(android.graphics.Color.parseColor(habit.color)) }.getOrDefault(MaterialTheme.colorScheme.primary)
@@ -242,6 +243,7 @@ fun HabitDetailScreen(
                             DetailInfoRowPerson("Assigned To", if (assignerName != null) "You" else session.name, session.photoUrl)
                             DetailInfoRow("Frequency", freqLabel)
                             DetailInfoRow("Current Streak", "${streak.current} day${if (streak.current == 1) "" else "s"}")
+                            DetailInfoRow("Reminder", formatReminderTime(habit.reminderTime) ?: "Off")
                             DetailInfoRow("Habit Created", habit.startDate, isLast = true)
                         }
                     }
@@ -330,7 +332,7 @@ fun HabitDetailScreen(
     lightboxUrl?.let { url ->
         androidx.compose.ui.window.Dialog(onDismissRequest = { lightboxUrl = null }, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
             Box(Modifier.fillMaxSize().background(Color.Black)) {
-                AsyncImage(model = url, contentDescription = "Photo", contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
+                com.triangle.app.ui.components.ZoomableImage(model = url, contentDescription = "Photo")
                 IconButton(onClick = { lightboxUrl = null }, modifier = Modifier.padding(12.dp)) {
                     Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
                 }
@@ -339,7 +341,7 @@ fun HabitDetailScreen(
     }
 
     if (showAchievements) {
-        HabitAchievementsSheet(habit = habit, streak = streak, onDismiss = { showAchievements = false })
+        HabitAchievementsSheet(habit = habit, streak = streak, completions = habitCompletionsMap, onDismiss = { showAchievements = false })
     }
 
     if (showNoteDialog) {

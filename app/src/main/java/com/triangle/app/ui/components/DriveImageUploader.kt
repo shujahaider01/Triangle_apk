@@ -25,6 +25,10 @@ import kotlin.coroutines.resume
 class DriveImageUploader internal constructor(
     private val authorize: suspend () -> String?
 ) {
+    /** Drive access token for uploading other file types; shows Google's consent screen first time. */
+    suspend fun accessToken(): String =
+        authorize().takeUnless { it.isNullOrEmpty() } ?: throw IllegalStateException("Google Drive access is needed to send files")
+
     suspend fun upload(bitmap: Bitmap, fileName: String): String {
         val token = authorize()
         if (token.isNullOrEmpty()) throw IllegalStateException("Google Drive access is needed to upload photos")

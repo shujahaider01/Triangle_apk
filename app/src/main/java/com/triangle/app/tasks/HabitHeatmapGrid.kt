@@ -37,7 +37,9 @@ fun HabitHeatmapGrid(
     color: Color,
     completions: Map<String, HabitCompletionEntry>,
     modifier: Modifier = Modifier,
-    cellSpacing: androidx.compose.ui.unit.Dp = 3.dp
+    cellSpacing: androidx.compose.ui.unit.Dp = 3.dp,
+    /** date -> 0..1 share of recipients who completed it; when given, a day's opacity follows it (shared habits). */
+    dayIntensity: Map<String, Float>? = null
 ) {
     val today = remember { LocalDate.now() }
     val cells = remember(today) { HabitStats.heatmapGrid(today) }
@@ -62,8 +64,15 @@ fun HabitHeatmapGrid(
                     if (day == null) return@forEachIndexed
                     val topLeft = Offset(c * (cellPx + spacingPx), r * (cellPx + spacingPx))
                     val doneThatDay = doneDays.contains(day.toString())
+                    val intensity = dayIntensity?.get(day.toString())
                     drawRoundRect(
-                        color = color.copy(alpha = if (doneThatDay) 1f else 0.18f),
+                        color = color.copy(
+                            alpha = when {
+                                intensity != null -> intensity.coerceAtLeast(0.3f) // 3 of 6 = 50%, everyone = 100%; floor keeps a lone completion visible
+                                doneThatDay -> 1f
+                                else -> 0.18f
+                            }
+                        ),
                         topLeft = topLeft,
                         size = cellSizePx,
                         cornerRadius = corner

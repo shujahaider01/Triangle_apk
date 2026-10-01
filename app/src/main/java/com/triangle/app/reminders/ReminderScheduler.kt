@@ -56,7 +56,39 @@ object ReminderScheduler {
         }
     }
 
+    /**
+     * A repeating task is a hidden template; its reminder fires at reminderTime on every
+     * day the repeat rule matches (no due date involved). Like a habit, only the NEXT
+     * occurrence is armed — ReminderAlarmReceiver re-arms the following one when it fires.
+     */
+    private fun scheduleForRepeatingTask(context: Context, orgId: String, task: Task) {
+        val rule = task.repeat
+        val time = try { task.reminderTime?.let { LocalTime.parse(it) } } catch (e: Exception) { null }
+        if (rule == null || time == null || task.paused) {
+            cancelForTask(context, orgId, task.id)
+            return
+        }
+        val now = java.time.LocalDateTime.now()
+        var date = if (now.toLocalTime() >= time) now.toLocalDate().plusDays(1) else now.toLocalDate()
+        var next: LocalDate? = null
+        for (i in 0 until 366) {
+            if (com.triangle.app.data.RepeatTaskEngine.occursOn(rule, date)) { next = date; break }
+            date = date.plusDays(1)
+        }
+        if (next == null) {
+            cancelForTask(context, orgId, task.id)
+            return
+        }
+        val triggerMillis = next.atTime(time).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        val pi = pendingIntent(context, KIND_TASK, task.id, orgId, create = true) ?: return
+        scheduleExact(context, triggerMillis, pi)
+    }
+
     fun scheduleForTask(context: Context, orgId: String, task: Task) {
+        if (task.isTemplate && task.repeat != null) {
+            scheduleForRepeatingTask(context, orgId, task)
+            return
+        }
         val dueDate = task.dueDate
         val reminderTime = task.reminderTime
         if (dueDate == null || reminderTime == null) {

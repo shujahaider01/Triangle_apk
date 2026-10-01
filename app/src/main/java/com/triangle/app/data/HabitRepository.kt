@@ -27,6 +27,23 @@ object HabitRepository {
             anyToMapList(snap.value).mapNotNull { Habit.fromMap(it) }
         }
 
+    /** This user's saved habit order (habit ids, first = top of the Habits list); empty until they reorder. */
+    fun habitOrderFlow(orgId: String, uid: String): Flow<List<String>> =
+        orgData(orgId).child("habitOrder/$uid").valueFlow().map { snap ->
+            val v = snap.value
+            when (v) {
+                is List<*> -> v.mapNotNull { it?.toString() }
+                is Map<*, *> -> v.entries.sortedBy { it.key.toString().toIntOrNull() ?: Int.MAX_VALUE }.mapNotNull { it.value?.toString() }
+                else -> emptyList()
+            }
+        }
+
+    /** Narrow write of just this user's order list — see Settings > Sorting. */
+    suspend fun setHabitOrder(orgId: String, uid: String, ids: List<String>) {
+        orgData(orgId).child("habitOrder/$uid").setValue(ids).await()
+    }
+
+
     /** habitId -> dateStr -> completion entry, for one intern (db.habitCompletions[uid] in script.js). */
     fun habitCompletionsFlow(orgId: String, uid: String): Flow<Map<String, Map<String, HabitCompletionEntry>>> =
         orgData(orgId).child("habitCompletions/$uid").valueFlow().map { snap ->

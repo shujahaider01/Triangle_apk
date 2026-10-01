@@ -21,11 +21,18 @@ import com.triangle.app.data.anyToMapList
  * faithful port of the source app's own `priority` field.
  */
 data class RepeatRule(
-    val freq: String, // "Days" | "Weekdays" | "Weeks" | "Months" | "Years"
+    /** "Days" | "Weekdays" | "Weeks" | "Months" | "Years" | "DaysOfMonth" | "PerPeriod" (the last two are native-only, used by the task form's habit-style frequency). */
+    val freq: String,
     val interval: Int = 1,
-    val days: List<Int> = emptyList() // day-of-week 0-6, only meaningful for "Weeks"
+    val days: List<Int> = emptyList(), // day-of-week 0-6, only meaningful for "Weeks"
+    val dates: List<Int> = emptyList(), // day-of-month 1-31, only meaningful for "DaysOfMonth"
+    val count: Int = 0, // "PerPeriod": how many days per period
+    val unit: String? = null // "PerPeriod": "week" | "month"
 ) {
-    fun toMap(): Map<String, Any?> = mapOf("freq" to freq, "interval" to interval, "days" to days)
+    fun toMap(): Map<String, Any?> = mapOf(
+        "freq" to freq, "interval" to interval, "days" to days,
+        "dates" to dates, "count" to count, "unit" to unit
+    )
 
     companion object {
         fun fromMap(m: Map<*, *>): RepeatRule? {
@@ -33,7 +40,10 @@ data class RepeatRule(
             return RepeatRule(
                 freq = freq,
                 interval = (m["interval"] as? Number)?.toInt() ?: 1,
-                days = (m["days"] as? List<*>)?.mapNotNull { (it as? Number)?.toInt() } ?: emptyList()
+                days = (m["days"] as? List<*>)?.mapNotNull { (it as? Number)?.toInt() } ?: emptyList(),
+                dates = (m["dates"] as? List<*>)?.mapNotNull { (it as? Number)?.toInt() } ?: emptyList(),
+                count = (m["count"] as? Number)?.toInt() ?: 0,
+                unit = m["unit"] as? String
             )
         }
     }

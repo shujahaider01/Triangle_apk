@@ -84,6 +84,26 @@ object NotificationRepository {
         push(toUid, "task_assigned", fromName, "assigned you a task: $taskTitle", otherUserId = fromUid, itemId = taskId)
     }
 
+    /** My own leaderboard position changed — see RankWatcher. */
+    suspend fun notifyRankChange(toUid: String, body: String) {
+        push(toUid, "rank_change", "Leaderboard", body)
+    }
+
+    /** Someone sent me a poll — shown in the Inbox; the notification is a one-line "New Poll" pointer. */
+    suspend fun notifyPoll(toUid: String, fromUid: String, fromName: String, question: String, pollId: String) {
+        push(toUid, "poll", question, "$fromName · Poll", otherUserId = fromUid, itemId = pollId)
+    }
+
+    /** Someone I assigned a task to completed it — taps through to the review screen. */
+    suspend fun notifyTaskCompleted(toUid: String, fromUid: String, fromName: String, taskTitle: String, taskId: String) {
+        push(toUid, "task_completed", fromName, "completed \"$taskTitle\" — tap to review it", otherUserId = fromUid, itemId = taskId)
+    }
+
+    /** The assigner reviewed a task I completed. */
+    suspend fun notifyReviewReceived(toUid: String, fromUid: String, fromName: String, stars: Int, taskTitle: String, taskId: String) {
+        push(toUid, "review_received", fromName, "rated you $stars/5 for \"$taskTitle\"", otherUserId = fromUid, itemId = taskId)
+    }
+
     /** Someone announced to a group I'm in — the row only carries a preview; the full text/photos live at social/announcements/{id}. */
     suspend fun notifyAnnouncement(toUid: String, fromUid: String, fromName: String, title: String, preview: String, announcementId: String) {
         push(toUid, "announcement", title, "$fromName · $preview", otherUserId = fromUid, itemId = announcementId)

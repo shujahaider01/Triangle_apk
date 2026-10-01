@@ -115,7 +115,8 @@ class DmViewModel(private val session: SessionStore.Session) : ViewModel() {
             _thread.value = _thread.value.copy(otherUserName = record?.name ?: "", otherUserPhotoUrl = record?.photoUrl)
         }
 
-        threadJob = combine(DmRepository.messagesFlow(threadId), DmRepository.threadFlow(threadId)) { messages, meta ->
+        threadJob = combine(DmRepository.messagesFlow(threadId), DmRepository.threadFlow(threadId), DmRepository.clearedAtFlow(session.uid, threadId)) { allMessages, meta, clearedAt ->
+            val messages = allMessages.filter { it.createdAt > clearedAt }
             val blockedByMe = meta?.blockedBy?.contains(session.uid) == true
             val blockedByOther = meta?.blockedBy?.contains(otherUserId) == true
             Triple(messages, blockedByMe, blockedByOther)
@@ -131,13 +132,27 @@ class DmViewModel(private val session: SessionStore.Session) : ViewModel() {
         viewModelScope.launch { DmRepository.markThreadRead(session.uid, threadId) }
     }
 
-    fun sendMessage(text: String) {
+    /** Uploads and sends one photo/video; false if it failed. */
+    suspend fun sendMedia(media: PreparedMedia, token: String): Boolean {
+        val otherUserId = _thread.value.otherUserId
+        if (otherUserId.isBlank()) return false
+        return runCatching { DmRepository.sendMedia(session.uid, session.name, otherUserId, media.bytes, media.mime, media.thumb, token, media.durationMs) }.isSuccess
+    }
+
+    fun sendMessage(text: String, replyToName: String? = null, replyToText: String? = null, replyToId: String? = null) {
         val otherUserId = _thread.value.otherUserId
         val trimmed = text.trim()
         if (otherUserId.isBlank() || trimmed.isBlank()) return
         viewModelScope.launch {
-            DmRepository.sendMessage(session.uid, session.name, otherUserId, trimmed)
+            DmRepository.sendMessage(session.uid, session.name, otherUserId, trimmed, replyToName, replyToText, replyToId)
         }
+    }
+
+    /** Deletes one of my own messages for both people. */
+    fun deleteMessage(messageId: String) {
+        val otherUserId = _thread.value.otherUserId
+        if (otherUserId.isBlank()) return
+        viewModelScope.launch { runCatching { DmRepository.deleteMessage(session.uid, otherUserId, messageId) } }
     }
 
     fun toggleBlock() {
@@ -146,5 +161,12 @@ class DmViewModel(private val session: SessionStore.Session) : ViewModel() {
         val threadId = DmRepository.threadId(session.uid, otherUserId)
         val newBlocked = !_thread.value.blockedByMe
         viewModelScope.launch { DmRepository.setBlocked(threadId, session.uid, newBlocked) }
+    }
+
+    /** Clears the conversation for me only. */
+    fun clearChat() {
+        val otherUserId = _thread.value.otherUserId
+        if (otherUserId.isBlank()) return
+        viewModelScope.launch { DmRepository.clearChat(session.uid, otherUserId) }
     }
 }

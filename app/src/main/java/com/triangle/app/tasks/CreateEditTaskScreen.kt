@@ -59,6 +59,7 @@ import com.triangle.app.data.AssignmentRepository
 import com.triangle.app.data.AutoAssignCycle
 import com.triangle.app.data.ConnectionRepository
 import com.triangle.app.data.HabitPalette
+import com.triangle.app.util.capFirst
 import com.triangle.app.data.PriorityXp
 import com.triangle.app.data.SessionStore
 import com.triangle.app.data.TaskRepository
@@ -100,14 +101,16 @@ fun CreateEditTaskScreen(
     onSaved: () -> Unit,
     onDeleted: () -> Unit,
     onBack: () -> Unit,
-    onFindPeople: () -> Unit = {}
+    onFindPeople: () -> Unit = {},
+    /** The assigner editing an item they assigned out (it lives in the recipients' orgs, not theirs). */
+    assignerEdit: Boolean = false
 ) {
     val scope = rememberCoroutineScope()
     val isNew = existingTask == null
     // For an existing task, whether it's Solo is a fact about the task
     // itself (createdBy), never the nav arg — that arg only matters for a
     // brand-new item, which doesn't have a createdBy yet.
-    val effectiveSolo = existingTask?.let { it.createdBy == null || it.createdBy == session.uid } ?: isSolo
+    val effectiveSolo = !assignerEdit && (existingTask?.let { it.createdBy == null || it.createdBy == session.uid } ?: isSolo)
 
     var title by remember { mutableStateOf(existingTask?.title ?: "") }
     var description by remember { mutableStateOf(existingTask?.description ?: "") }
@@ -119,6 +122,9 @@ fun CreateEditTaskScreen(
     var iconSvg by remember { mutableStateOf(existingTask?.iconSvg ?: HabitPalette.ICONS.getValue(HabitPalette.DEFAULT_ICON_KEY)) }
     var checklist by remember { mutableStateOf(existingTask?.checklist ?: emptyList()) }
     var showDatePicker by remember { mutableStateOf(false) }
+    // Only offered for NEW tasks: a repeating task is saved as a hidden template
+    // that RepeatTaskEngine expands into one instance per matching day.
+    var repeatRule by remember { mutableStateOf<com.triangle.app.data.models.RepeatRule?>(null) }
     var saving by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
@@ -176,11 +182,13 @@ fun CreateEditTaskScreen(
         assignedTo = uid,
         priority = priority,
         points = points,
-        dueDate = dueDate,
+        dueDate = if (repeatRule != null) null else dueDate,
         reminderTime = if (reminderEnabled) reminderTime else null,
         iconColor = color,
         iconSvg = iconSvg,
         checklist = checklist,
+        repeat = repeatRule,
+        isTemplate = repeatRule != null,
         createdDate = LocalDate.now().toString(),
         createdAt = createdAt
     )
@@ -200,11 +208,13 @@ fun CreateEditTaskScreen(
         assignedTo = session.uid,
         priority = "medium",
         points = 0,
-        dueDate = dueDate,
+        dueDate = if (repeatRule != null) null else dueDate,
         reminderTime = if (reminderEnabled) reminderTime else null,
         iconColor = color,
         iconSvg = iconSvg,
         checklist = checklist,
+        repeat = repeatRule,
+        isTemplate = repeatRule != null,
         createdDate = LocalDate.now().toString(),
         createdAt = createdAt
     )
@@ -252,7 +262,8 @@ fun CreateEditTaskScreen(
             )
         } else {
             val points = PriorityXp.xpFor(priority)
-            viewModel.updateTaskInBackground(
+            val saveEdit: (Task) -> Unit = if (assignerEdit) viewModel::updateAssignedTask else viewModel::updateTaskInBackground
+            saveEdit(
                 existingTask!!.copy(
                     title = title.trim(),
                     description = description,
@@ -289,25 +300,16 @@ fun CreateEditTaskScreen(
     }
 
     androidx.compose.material3.Scaffold(
+        containerColor = formPageColor(),
         topBar = {
             androidx.compose.material3.TopAppBar(
+                colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(containerColor = formPageColor()),
                 title = { Text(if (isNew) "Add Task" else "Edit Task", fontSize = 18.sp, fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                 },
                 actions = {
-                    TextButton(
-                        onClick = { save() },
-                        enabled = title.isNotBlank() && !saving && (!isNew || effectiveSolo || selectedUids.isNotEmpty())
-                    ) {
-                        if (saving) {
-                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                        } else {
-                            Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
-                        }
-                        Spacer(Modifier.width(4.dp))
-                        Text(if (saving) "Saving…" else "Save")
-                    }
+                    FormSaveButton(saving = saving, enabled = title.isNotBlank() && !saving && (!isNew || effectiveSolo || selectedUids.isNotEmpty()), onClick = { save() })
                 }
             )
         }
@@ -324,42 +326,24 @@ fun CreateEditTaskScreen(
             Modifier
                 .fillMaxSize()
                 .padding(scaffoldPadding)
-                .verticalScroll(rememberScrollState())
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp)
+                .formScroll()
+                .padding(horizontal = 12.dp, vertical = 12.dp),
+            verticalArrangement = FormSectionSpacing
         ) {
-            if (!effectiveSolo) {
-                if (isNew) {
-                    AssignSummaryRow(
-                        members = circleMembers,
-                        selectedUids = selectedUids,
-                        onClick = { showAssignScreen = true }
-                    )
-                } else {
-                    Column {
-                        Text("Assigned to", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Spacer(Modifier.height(4.dp))
-                        Text("You", fontSize = 15.sp)
-                    }
-                }
-            }
-
-            OutlinedTextField(
+            FormTextField(
                 value = title,
                 onValueChange = { title = it },
-                label = { Text("Task title") },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
-                modifier = Modifier.fillMaxWidth()
+                placeholder = "Enter Task Title",
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words)
             )
-            OutlinedTextField(
+            FormTextField(
                 value = description,
-                onValueChange = { description = it },
-                label = { Text("Description") },
+                onValueChange = { description = it.capFirst() },
+                placeholder = "Enter Description (optional)",
+                singleLine = false,
                 minLines = 3,
                 maxLines = 6,
-                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None),
-                modifier = Modifier.fillMaxWidth()
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences)
             )
 
             IconColorPicker(
@@ -369,43 +353,54 @@ fun CreateEditTaskScreen(
                 onIconSelected = { key, svg -> iconKey = key; iconSvg = svg }
             )
 
-            if (effectiveSolo) {
-                Column {
-                    Text("Category", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.height(8.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        CATEGORIES.forEach { cat ->
-                            val active = category == cat
-                            Box(
-                                Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
-                                    .clickable { category = cat }
-                                    .padding(horizontal = 14.dp, vertical = 8.dp)
-                            ) {
-                                Text(cat, fontSize = 13.sp, color = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                        }
+            if (!effectiveSolo) {
+                if (isNew) {
+                    FormCard {
+                        AssignSummaryRow(
+                            members = circleMembers,
+                            selectedUids = selectedUids,
+                            onClick = { showAssignScreen = true }
+                        )
+                    }
+                } else {
+                    FormCard {
+                        FormCardTitle("Assigned to")
+                        Spacer(Modifier.height(4.dp))
+                        Text(if (assignerEdit) "Your Circle (changes apply to everyone)" else "You", fontSize = 15.sp)
                     }
                 }
-            } else {
-                PriorityPicker(selected = priority, onSelect = { priority = it })
             }
 
-            Column {
-                Text("Due date", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.height(8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(dueDate ?: "No due date", fontSize = 15.sp, modifier = Modifier.weight(1f))
-                    TextButton(onClick = { showDatePicker = true }) { Text(if (dueDate == null) "Set" else "Change") }
-                    if (dueDate != null) TextButton(onClick = { dueDate = null }) { Text("Clear") }
+            if (effectiveSolo) {
+                FormCard {
+                    FormCardTitle("Select Category")
+                    Spacer(Modifier.height(12.dp))
+                    CategoryChips(session.orgId, category, isNew) { category = it }
+                }
+            } else {
+                FormCard { PriorityPicker(selected = priority, onSelect = { priority = it }) }
+            }
+
+            if (isNew) {
+                TaskRepeatPicker(rule = repeatRule, onChange = { repeatRule = it })
+            }
+
+            if (repeatRule == null) {
+                FormCard {
+                    FormCardTitle("Due Date")
+                    Spacer(Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(dueDate ?: "No due date", fontSize = 15.sp, modifier = Modifier.weight(1f))
+                        TextButton(onClick = { showDatePicker = true }) { Text(if (dueDate == null) "Set" else "Change") }
+                        if (dueDate != null) TextButton(onClick = { dueDate = null }) { Text("Clear") }
+                    }
                 }
             }
 
             ReminderSection(
                 enabled = reminderEnabled,
                 time = reminderTime,
-                disabledHint = if (dueDate == null) "Set a due date first" else null,
+                disabledHint = if (dueDate == null && repeatRule == null) "Set a due date first" else null,
                 onToggle = { on ->
                     if (on && !ReminderPermissions.canScheduleExactAlarms(context)) {
                         exactAlarmSettingsLauncher.launch(ReminderPermissions.exactAlarmSettingsIntent(context))
@@ -416,10 +411,20 @@ fun CreateEditTaskScreen(
                 onTimeClick = { showReminderTimePicker = true }
             )
 
-            ChecklistEditor(items = checklist, onChange = { checklist = it })
+            var checklistOn by remember { mutableStateOf(checklist.isNotEmpty()) }
+            FormToggleCard(
+                title = "Checklist",
+                checked = checklistOn,
+                onCheckedChange = { on ->
+                    checklistOn = on
+                    if (!on) checklist = emptyList()
+                    else if (checklist.isEmpty()) checklist = listOf(ChecklistItem(id = "ci-${System.currentTimeMillis()}", text = ""))
+                }
+            ) {
+                ChecklistEditor(items = checklist, onChange = { checklist = it })
+            }
 
-            if (!isNew && existingTask?.isPersonal == true && existingTask.createdBy == session.uid) {
-                Spacer(Modifier.height(4.dp))
+            if (!assignerEdit && !isNew && existingTask?.isPersonal == true && existingTask.createdBy == session.uid) {
                 TextButton(onClick = {
                     scope.launch {
                         runCatching { TaskRepository.deleteTask(session.orgId, existingTask.id) }
@@ -472,8 +477,6 @@ fun CreateEditTaskScreen(
 @Composable
 private fun ChecklistEditor(items: List<ChecklistItem>, onChange: (List<ChecklistItem>) -> Unit) {
     Column {
-        Text("Checklist", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.height(8.dp))
         items.forEachIndexed { index, item ->
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
                 OutlinedTextField(

@@ -73,11 +73,13 @@ data class Habit(
     /** Habit Detail's photo timeline (script.js's habit.photos) — reuses TaskNote's shape since it's generic enough (type/content/userId/userName/role/timestamp), same as Task.notes. */
     val photos: List<TaskNote> = emptyList(),
     /** Hides this copy from the owner's active Habits panes without deleting it — see Settings > Archived Items. Per-copy, not shared across recipients. */
-    val archived: Boolean = false
+    val archived: Boolean = false,
+    /** Solo habits only: lets a past day (picked from the date strip/calendar) be marked complete. */
+    val allowBackdate: Boolean = false
 ) {
     /** Same rule as script.js's _habitIsInRange(). */
     fun isInRange(dateStr: String): Boolean =
-        dateStr >= startDate && (endDate == null || dateStr <= endDate)
+        (allowBackdate || dateStr >= startDate) && (endDate == null || dateStr <= endDate)
 
     fun toMap(): Map<String, Any?> = mapOf(
         "id" to id, "name" to name, "description" to description, "iconSvg" to iconSvg, "color" to color,
@@ -86,7 +88,8 @@ data class Habit(
         "reminderTime" to reminderTime,
         "priority" to priority, "xpPerCompletion" to xpPerCompletion, "createdAt" to createdAt, "createdBy" to createdBy,
         "photos" to photos.map { it.toMap() },
-        "archived" to archived
+        "archived" to archived,
+        "allowBackdate" to allowBackdate
     )
 
     companion object {
@@ -112,7 +115,8 @@ data class Habit(
                 createdAt = (m["createdAt"] as? Number)?.toLong() ?: 0L,
                 createdBy = m["createdBy"]?.toString(),
                 photos = anyToMapList(m["photos"]).mapNotNull { TaskNote.fromMap(it) },
-                archived = m["archived"] == true
+                archived = m["archived"] == true,
+                allowBackdate = m["allowBackdate"] == true
             )
         }
     }

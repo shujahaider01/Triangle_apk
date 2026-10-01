@@ -32,10 +32,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Assignment
+import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Work
@@ -227,14 +229,39 @@ fun TasksHabitsScreen(
     var assignedTaskDetail by remember { mutableStateOf<AssignmentRepository.AssignedTaskGroup?>(null) }
     var assignedHabitDetail by remember { mutableStateOf<AssignmentRepository.AssignedHabitGroup?>(null) }
     var assignedHabitAnalytics by remember { mutableStateOf<AssignmentRepository.AssignedHabitGroup?>(null) }
+    var analyticsPerson by remember { mutableStateOf<String?>(null) }
+    var analyticsPickerGroup by remember { mutableStateOf<AssignmentRepository.AssignedHabitGroup?>(null) }
+    var editingAssignedTask by remember { mutableStateOf<AssignmentRepository.AssignedTaskGroup?>(null) }
+    var editingAssignedHabit by remember { mutableStateOf<AssignmentRepository.AssignedHabitGroup?>(null) }
     var showFilterSheet by remember { mutableStateOf(false) }
+    BackHandler(enabled = editingAssignedTask != null) { editingAssignedTask = null }
+    BackHandler(enabled = editingAssignedHabit != null) { editingAssignedHabit = null }
     BackHandler(enabled = assignedTaskDetail != null) { assignedTaskDetail = null }
     BackHandler(enabled = assignedHabitDetail != null) { assignedHabitDetail = null }
     BackHandler(enabled = assignedHabitAnalytics != null) { assignedHabitAnalytics = null }
     BackHandler(enabled = showFilterSheet) { showFilterSheet = false }
+    editingAssignedTask?.let { group ->
+        CreateEditTaskScreen(
+            session = viewModel.sessionInfo, viewModel = viewModel, existingTask = group.task, assignerEdit = true,
+            onSaved = { editingAssignedTask = null; assignedTaskDetail = null },
+            onDeleted = { editingAssignedTask = null },
+            onBack = { editingAssignedTask = null }
+        )
+        return
+    }
+    editingAssignedHabit?.let { group ->
+        CreateEditHabitScreen(
+            session = viewModel.sessionInfo, viewModel = viewModel, existingHabit = group.habit, assignerEdit = true,
+            onSaved = { editingAssignedHabit = null; assignedHabitDetail = null },
+            onDeleted = { editingAssignedHabit = null },
+            onBack = { editingAssignedHabit = null }
+        )
+        return
+    }
     assignedTaskDetail?.let { group ->
         AssignedTaskDetailScreen(
             group = group,
+            onEdit = { editingAssignedTask = group },
             onDelete = { viewModel.deleteTaskAssignment(group.itemId); assignedTaskDetail = null },
             onBack = { assignedTaskDetail = null }
         )
@@ -243,6 +270,7 @@ fun TasksHabitsScreen(
     assignedHabitDetail?.let { group ->
         AssignedHabitDetailScreen(
             group = group,
+            onEdit = { editingAssignedHabit = group },
             dateStr = state.selectedDate.toString(),
             onDelete = { viewModel.deleteHabitAssignment(group.itemId); assignedHabitDetail = null },
             onBack = { assignedHabitDetail = null }
@@ -250,11 +278,24 @@ fun TasksHabitsScreen(
         return
     }
     assignedHabitAnalytics?.let { group ->
-        val merged = remember(group) {
-            group.members.fold(emptyMap<String, com.triangle.app.data.models.HabitCompletionEntry>()) { acc, member -> acc + member.completions }
+        val member = group.members.firstOrNull { it.uid == analyticsPerson } ?: group.members.firstOrNull()
+        if (member != null) {
+            HabitAnalyticsScreen(
+                habit = group.habit,
+                completions = member.completions,
+                onBack = { assignedHabitAnalytics = null }
+            )
+            return
         }
-        HabitAnalyticsScreen(habit = group.habit, completions = merged, onBack = { assignedHabitAnalytics = null })
-        return
+    }
+    // 2+ recipients: a panel over the list asks whose analytics to show first.
+    analyticsPickerGroup?.let { group ->
+        AssignedHabitPersonSheet(
+            habitName = group.habit.name,
+            members = group.members,
+            onPick = { analyticsPerson = it.uid; assignedHabitAnalytics = group; analyticsPickerGroup = null },
+            onDismiss = { analyticsPickerGroup = null }
+        )
     }
     // A full page rather than a bottom sheet, per the user's explicit request
     // — same local-overlay pattern as the other full-screen swaps above.
@@ -358,7 +399,7 @@ fun TasksHabitsScreen(
                 // etc.) had to inflate mid-gesture, which is what made the
                 // Tasks<->Habits swipe itself feel less smooth than scrolling
                 // within either page.
-                HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize(), beyondViewportPageCount = 1) { page ->
+                HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize(), beyondViewportPageCount = 1, reverseLayout = true) /* Habits sits on the left, Tasks on the right */ { page ->
                     if (page == 0) {
                         TasksPane(
                             state = state,
@@ -377,7 +418,10 @@ fun TasksHabitsScreen(
                             onOpenDetail = onOpenHabitDetail,
                             onOpenAnalytics = onOpenHabitAnalytics,
                             onOpenAssignedDetail = { assignedHabitDetail = it },
-                            onOpenAssignedAnalytics = { assignedHabitAnalytics = it },
+                            onOpenAssignedAnalytics = { g ->
+                                if (g.members.size >= 2) analyticsPickerGroup = g
+                                else { analyticsPerson = g.members.firstOrNull()?.uid; assignedHabitAnalytics = g }
+                            },
                             onHabitCompleted = ::showHabitCompletedUndo,
                             highlightedId = highlightedId
                         )
@@ -389,6 +433,7 @@ fun TasksHabitsScreen(
     }
     // Above the Scaffold (so the nav bar can't cover it), low over the environment strip.
     SnackbarHost(snackbarHostState, Modifier.align(Alignment.BottomCenter).padding(bottom = 60.dp))
+    state.streakUnlock?.let { StreakUnlockDialog(it, onDismiss = viewModel::dismissStreakUnlock) }
     }
 }
 
@@ -403,9 +448,13 @@ fun TasksHabitsScreen(
  */
 @Composable
 private fun DateHeader(state: TasksHabitsUiState, viewModel: TasksHabitsViewModel, activePage: Int, onOpenFilters: () -> Unit) {
+    var showRangePicker by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 24.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            val label = remember(state.selectedDate) { ordinalDateLabel(state.selectedDate) }
+            val label = remember(state.selectedDate, state.dateRange) {
+                val r = state.dateRange
+                if (r != null) rangeLabel(r) else ordinalDateLabel(state.selectedDate)
+            }
             Text(
                 buildAnnotatedString {
                     withStyle(SpanStyle(fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface)) {
@@ -416,7 +465,7 @@ private fun DateHeader(state: TasksHabitsUiState, viewModel: TasksHabitsViewMode
                     }
                 },
                 fontSize = 20.sp,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f).clickable { showRangePicker = true }
             )
             BadgedBox(
                 badge = {
@@ -427,14 +476,32 @@ private fun DateHeader(state: TasksHabitsUiState, viewModel: TasksHabitsViewMode
                     }
                 }
             ) {
-                IconButton(onClick = onOpenFilters, modifier = Modifier.size(32.dp)) {
+                // Borderless sliders icon, held in from the right edge.
+                Box(
+                    Modifier
+                        .padding(end = 10.dp)
+                        .size(38.dp)
+                        .clip(RoundedCornerShape(7.dp))
+                        .clickable(onClick = onOpenFilters),
+                    contentAlignment = Alignment.Center
+                ) {
                     Icon(
-                        Icons.Default.FilterList,
+                        Icons.Default.Tune,
                         contentDescription = "Filters",
-                        tint = if (state.filters.isActive) TriangleBrandPurple else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+                        modifier = Modifier.size(20.dp),
+                        tint = if (state.filters.isActive) TriangleBrandPurple else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
                     )
                 }
             }
+        }
+
+        if (showRangePicker) {
+            RangeCalendarDialog(
+                initialMonth = java.time.YearMonth.from(state.selectedDate),
+                onApply = { s, e -> viewModel.setDateRange(s, e); showRangePicker = false },
+                onClear = { viewModel.goToToday(); showRangePicker = false },
+                onDismiss = { showRangePicker = false }
+            )
         }
 
         Spacer(Modifier.height(15.dp))
@@ -443,7 +510,8 @@ private fun DateHeader(state: TasksHabitsUiState, viewModel: TasksHabitsViewMode
             brandColor = TriangleBrandPurple,
             pctForDate = { d -> if (activePage == 0) viewModel.tasksPctForDate(d) else viewModel.habitsPctForDate(d) },
             onSelect = viewModel::selectDate,
-            highlightRange = state.filters.dateRangeHighlight
+            highlightRange = state.filters.dateRangeHighlight,
+            range = state.dateRange
         )
     }
 }
@@ -482,6 +550,9 @@ private fun ordinalDateLabel(date: LocalDate): Pair<String, String> {
  */
 @Composable
 private fun FilterBar(state: TasksHabitsUiState, viewModel: TasksHabitsViewModel, activePage: Int) {
+    // Solo mode filters by the user's own categories (Settings > Categories).
+    val soloCategories by com.triangle.app.data.CategoryRepository.categoriesFlow(viewModel.sessionInfo.orgId)
+        .collectAsState(initial = com.triangle.app.data.CategoryRepository.DEFAULTS)
     val sharedCount = if (activePage == 0) state.sharedTaskCount else state.sharedHabitCount
     val soloCount = if (activePage == 0) state.soloTaskCount else state.soloHabitCount
 
@@ -503,8 +574,16 @@ private fun FilterBar(state: TasksHabitsUiState, viewModel: TasksHabitsViewModel
                 ItemMode.SHARED -> SHARED_SUB_FILTER_ICONS.forEach { (filter, icon) ->
                     CategoryPill(filter.label, icon, state.sharedSubFilter == filter) { viewModel.setSharedSubFilter(filter) }
                 }
-                ItemMode.SOLO -> SOLO_CATEGORY_ICONS.forEach { (label, icon) ->
-                    CategoryPill(label, icon, state.soloCategoryFilter == label) { viewModel.setSoloCategoryFilter(label) }
+                ItemMode.SOLO -> {
+                    CategoryPill("All", Icons.Default.Apps, state.soloCategoryFilter == "All") { viewModel.setSoloCategoryFilter("All") }
+                    // Each of the user's own categories shows the icon they picked for it.
+                    soloCategories.forEach { c ->
+                        CategoryPill(
+                            c.name, null, state.soloCategoryFilter == c.name,
+                            svgIcon = com.triangle.app.data.HabitPalette.ICONS[c.iconKey]
+                                ?: com.triangle.app.data.HabitPalette.ICONS.getValue(com.triangle.app.data.HabitPalette.DEFAULT_ICON_KEY)
+                        ) { viewModel.setSoloCategoryFilter(c.name) }
+                    }
                 }
             }
         }
@@ -515,13 +594,6 @@ private val SHARED_SUB_FILTER_ICONS: List<Pair<SharedSubFilter, ImageVector>> = 
     SharedSubFilter.ALL to Icons.Default.Apps,
     SharedSubFilter.ASSIGNED_TO_ME to Icons.AutoMirrored.Filled.Assignment,
     SharedSubFilter.ASSIGNED_BY_ME to Icons.AutoMirrored.Filled.Send
-)
-
-private val SOLO_CATEGORY_ICONS: List<Pair<String, ImageVector>> = listOf(
-    "All" to Icons.Default.Apps,
-    "Office" to Icons.Default.Work,
-    "Academic" to Icons.Default.School,
-    "Personal" to Icons.Default.Person
 )
 
 /**
@@ -545,8 +617,8 @@ private fun ModeSegment(sharedCount: Int, soloCount: Int, active: ItemMode, onSe
         // distribute) makes both halves match whichever label is wider,
         // instead of each sizing to its own text ("Shared (12)" vs. "Solo
         // (3)" previously ending up visibly different widths).
-        StatusSegmentItem("Shared ($sharedCount)", active == ItemMode.SHARED, modifier = Modifier.width(IntrinsicSize.Max)) { onSelect(ItemMode.SHARED) }
         StatusSegmentItem("Solo ($soloCount)", active == ItemMode.SOLO, modifier = Modifier.width(IntrinsicSize.Max)) { onSelect(ItemMode.SOLO) }
+        StatusSegmentItem("Shared ($sharedCount)", active == ItemMode.SHARED, modifier = Modifier.width(IntrinsicSize.Max)) { onSelect(ItemMode.SHARED) }
     }
 }
 
@@ -571,7 +643,7 @@ private fun StatusSegmentItem(label: String, active: Boolean, modifier: Modifier
 
 /** Matches .hd-cat-pill/.hd-cat-active — icon + label, bordered pill; active = brand-purple border/text, not filled. */
 @Composable
-private fun CategoryPill(label: String, icon: ImageVector, active: Boolean, onClick: () -> Unit) {
+private fun CategoryPill(label: String, icon: ImageVector?, active: Boolean, svgIcon: String? = null, onClick: () -> Unit) {
     val dark = triangleDarkTheme()
     val border = if (active) TriangleBrandPurple else MaterialTheme.colorScheme.onSurface.copy(alpha = if (dark) 0.18f else 0.13f)
     Row(
@@ -585,7 +657,9 @@ private fun CategoryPill(label: String, icon: ImageVector, active: Boolean, onCl
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Icon(icon, contentDescription = null, tint = if (active) TriangleBrandPurple else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f), modifier = Modifier.size(13.dp))
+        val iconTint = if (active) TriangleBrandPurple else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+        if (svgIcon != null) com.triangle.app.ui.SvgPathIcon(svgIcon, tint = iconTint, size = 14.dp)
+        else if (icon != null) Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(13.dp))
         Text(label, fontSize = 11.sp, fontWeight = if (active) FontWeight.Bold else FontWeight.SemiBold, color = if (active) TriangleBrandPurple else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f))
     }
 }
@@ -609,13 +683,16 @@ private fun TasksPane(
         return
     }
     var expandedGroup by remember { mutableStateOf<AssignmentRepository.AssignedTaskGroup?>(null) }
+    // Long lists load a page at a time with a spinner at the bottom; a deep-link highlight needs the whole list in place.
+    val paging = com.triangle.app.ui.components.rememberLazyPaging(listState, state.visibleTasks.size, 20, resetKey = state.selectedDate to state.itemMode)
+    androidx.compose.runtime.LaunchedEffect(highlightedId) { if (highlightedId != null) paging.ensure(state.visibleTasks.size) }
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(12.dp, 12.dp, 12.dp, 100.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        items(state.visibleTasks, key = { row -> when (row) { is TaskRow.Own -> row.task.id; is TaskRow.Assigned -> "assigned-${row.group.itemId}" } }) { row ->
+        items(state.visibleTasks.take(paging.visible), key = { row -> when (row) { is TaskRow.Own -> row.task.id; is TaskRow.Assigned -> "assigned-${row.group.itemId}" } }) { row ->
             val rowId = when (row) { is TaskRow.Own -> row.task.id; is TaskRow.Assigned -> row.group.itemId }
             Box(Modifier.deepLinkHighlight(highlightedId == rowId)) {
                 when (row) {
@@ -636,6 +713,7 @@ private fun TasksPane(
                 }
             }
         }
+        if (paging.hasMore) item(key = "load-more") { com.triangle.app.ui.components.LoadMoreFooter() }
     }
     expandedGroup?.let { group ->
         AssignedGroupMembersSheet(
@@ -667,6 +745,8 @@ private fun HabitsPane(
         return
     }
     var expandedGroup by remember { mutableStateOf<AssignmentRepository.AssignedHabitGroup?>(null) }
+    val paging = com.triangle.app.ui.components.rememberLazyPaging(listState, state.visibleHabits.size, 20, resetKey = state.selectedDate to state.itemMode)
+    androidx.compose.runtime.LaunchedEffect(highlightedId) { if (highlightedId != null) paging.ensure(state.visibleHabits.size) }
     val dateStr = state.selectedDate.toString()
     LazyColumn(
         state = listState,
@@ -674,7 +754,7 @@ private fun HabitsPane(
         contentPadding = PaddingValues(12.dp, 12.dp, 12.dp, 100.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        items(state.visibleHabits, key = { row -> when (row) { is HabitRow.Own -> row.habit.id; is HabitRow.Assigned -> "assigned-${row.group.itemId}" } }) { row ->
+        items(state.visibleHabits.take(paging.visible), key = { row -> when (row) { is HabitRow.Own -> row.habit.id; is HabitRow.Assigned -> "assigned-${row.group.itemId}" } }) { row ->
             val rowId = when (row) { is HabitRow.Own -> row.habit.id; is HabitRow.Assigned -> row.group.itemId }
             Box(Modifier.deepLinkHighlight(highlightedId == rowId)) {
                 when (row) {
@@ -684,11 +764,11 @@ private fun HabitsPane(
                             habit = row.habit,
                             completions = completionsForHabit,
                             streak = viewModel.streakFor(row.habit).current,
-                            doneToday = completionsForHabit.containsKey(dateStr) || (state.selectedDate == java.time.LocalDate.now() && row.habit.id in state.optimisticHabitDone),
-                            canComplete = state.selectedDate == java.time.LocalDate.now(),
+                            doneToday = completionsForHabit.containsKey(dateStr) || "${row.habit.id}|$dateStr" in state.optimisticHabitDone,
+                            canComplete = state.selectedDate == java.time.LocalDate.now() || (row.habit.allowBackdate && state.selectedDate.isBefore(java.time.LocalDate.now())),
                             onClick = { onOpenDetail(row.habit.id) },
                             onOpenAnalytics = { onOpenAnalytics(row.habit.id) },
-                            onCompleteToday = { viewModel.completeHabitToday(row.habit); onHabitCompleted(row.habit) }
+                            onCompleteToday = { viewModel.completeHabitOn(row.habit, state.selectedDate); onHabitCompleted(row.habit) }
                         )
                     }
                     is HabitRow.Assigned -> AssignedHabitRowCard(
@@ -701,6 +781,7 @@ private fun HabitsPane(
                 }
             }
         }
+        if (paging.hasMore) item(key = "load-more") { com.triangle.app.ui.components.LoadMoreFooter() }
     }
     expandedGroup?.let { group ->
         AssignedGroupMembersSheet(
@@ -722,4 +803,13 @@ private fun EmptyState(emoji: String, message: String) {
         Spacer(Modifier.height(12.dp))
         Text(message, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
     }
+}
+
+/** "1 Oct – 7 Oct" (bold) + year-aware second half, for a picked range. */
+private fun rangeLabel(r: DateSpan): Pair<String, String> {
+    fun short(d: LocalDate) = "${d.dayOfMonth} ${d.month.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.getDefault())}"
+    val thisYear = LocalDate.now().year
+    val tail = if (r.start.year == r.end.year) (if (r.end.year == thisYear) "${r.start.until(r.end, java.time.temporal.ChronoUnit.DAYS) + 1} days" else r.end.year.toString())
+    else "${r.start.year}–${r.end.year}"
+    return "${short(r.start)} – ${short(r.end)}" to tail
 }

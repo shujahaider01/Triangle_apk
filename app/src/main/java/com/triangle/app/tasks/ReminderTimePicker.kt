@@ -70,20 +70,16 @@ fun ReminderSection(
     onToggle: (Boolean) -> Unit,
     onTimeClick: () -> Unit
 ) {
-    Column {
-        Text("Reminder", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.height(8.dp))
+    FormToggleCard(
+        title = "Set Reminder",
+        checked = enabled && disabledHint == null,
+        onCheckedChange = onToggle,
+        subtitle = disabledHint,
+        showSwitch = disabledHint == null
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                if (disabledHint != null) disabledHint
-                else if (enabled) (formatReminderTime(time) ?: "Set a time") else "Off",
-                fontSize = 15.sp,
-                modifier = Modifier.weight(1f)
-            )
-            if (disabledHint == null) {
-                if (enabled) TextButton(onClick = onTimeClick) { Text(if (time == null) "Set" else "Change") }
-                Switch(checked = enabled, onCheckedChange = onToggle)
-            }
+            Text(formatReminderTime(time) ?: "Set a time", fontSize = 15.sp, modifier = Modifier.weight(1f))
+            TextButton(onClick = onTimeClick) { Text(if (time == null) "Set" else "Change") }
         }
     }
 }

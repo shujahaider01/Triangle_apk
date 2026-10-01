@@ -43,7 +43,7 @@ import com.triangle.app.data.HighlightKind
 import com.triangle.app.data.NotificationRepository
 import com.triangle.app.ui.theme.TriangleBrandPurple
 import com.triangle.app.ui.theme.TriangleOrange
-import com.triangle.app.ui.theme.TriangleBrandPurpleLight
+
 import kotlinx.coroutines.delay
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
@@ -76,6 +76,14 @@ import com.triangle.app.dm.DmThreadScreen
 import com.triangle.app.dm.DmViewModel
 import com.triangle.app.leaderboard.LeaderboardScreen
 import com.triangle.app.leaderboard.LeaderboardViewModel
+import com.triangle.app.dashboard.BacklogScreen
+import com.triangle.app.dashboard.TasksListMode
+import com.triangle.app.inbox.InboxScreen
+import com.triangle.app.inbox.PollComposeScreen
+import com.triangle.app.inbox.PollComposeViewModel
+import com.triangle.app.inbox.PollDetailsScreen
+import com.triangle.app.reviews.ReviewSubmitScreen
+import com.triangle.app.reviews.ReviewsScreen
 import com.triangle.app.notifications.NotificationsScreen
 import com.triangle.app.notifications.NotificationsViewModel
 import com.triangle.app.profile.ProfileScreen
@@ -92,6 +100,8 @@ import com.triangle.app.settings.ArchivedItemsScreen
 import com.triangle.app.settings.BackupRestoreScreen
 import com.triangle.app.settings.BackupRestoreViewModel
 import com.triangle.app.settings.ChangePasswordScreen
+import com.triangle.app.settings.HabitSortingScreen
+import com.triangle.app.settings.CategoriesScreen
 import com.triangle.app.settings.SettingsScreen
 
 private const val ROUTE_LOGIN = "login"
@@ -101,11 +111,17 @@ private const val ROUTE_DASHBOARD = "dashboard"
 private const val ROUTE_PROFILE = "profile"
 private const val ROUTE_NOTIFICATIONS = "notifications"
 private const val ROUTE_SETTINGS = "settings"
+private const val ROUTE_HABIT_SORTING = "habitSorting"
+private const val ROUTE_CATEGORIES = "categories"
 private const val ROUTE_CHANGE_PASSWORD = "changePassword"
 private const val ROUTE_BACKUP_RESTORE = "backupRestore"
 private const val ROUTE_ARCHIVED_ITEMS = "archivedItems"
 private const val ROUTE_COMPOSE_ANNOUNCEMENT = "composeAnnouncement"
 private const val ROUTE_LEADERBOARD = "leaderboard"
+private const val ROUTE_REVIEWS = "reviews"
+private const val ROUTE_INBOX = "inbox"
+private const val ROUTE_POLL_COMPOSE = "composePoll"
+private const val ROUTE_POLL_DETAILS = "pollDetails/{pollId}"
 private const val ROUTE_DM_GRAPH = "dmGraph"
 private const val ROUTE_DM_INBOX = "dmInbox"
 private const val ROUTE_DM_NEW_MESSAGE = "dmNewMessage"
@@ -185,10 +201,15 @@ private suspend fun routeDeepLink(navController: NavController, session: Session
             navController.navigate("dmThread/${notification.otherUserId}") { launchSingleTop = true }
         }
         // Announcements render inline in the Notifications list — open it and highlight the card.
-        notification.type == "announcement" && itemId != null -> {
+        (notification.type == "announcement" || notification.type == "poll") && itemId != null -> {
             HighlightBus.post(HighlightKind.ANNOUNCEMENT, itemId)
-            navController.navigate(ROUTE_NOTIFICATIONS) { launchSingleTop = true }
+            navController.navigate(ROUTE_INBOX) { launchSingleTop = true }
         }
+        // Someone finished a task I assigned: straight to the review form for that person.
+        notification.type == "task_completed" && itemId != null && notification.otherUserId != null ->
+            navController.navigate("reviewSubmit/$itemId/${notification.otherUserId}") { launchSingleTop = true }
+        notification.type == "review_received" -> navController.navigate(ROUTE_REVIEWS) { launchSingleTop = true }
+        notification.type == "rank_change" -> navController.navigate(ROUTE_LEADERBOARD) { launchSingleTop = true }
         notification.type == "task_assigned" -> openTasks(HighlightKind.TASK, itemId ?: "", HighlightBus.titleFromAssignedBody(notification.body))
         notification.type == "habit_assigned" -> openTasks(HighlightKind.HABIT, itemId ?: "", HighlightBus.titleFromAssignedBody(notification.body))
         else -> navController.navigate(ROUTE_NOTIFICATIONS) { launchSingleTop = true }
@@ -222,7 +243,7 @@ private fun SplashGradientScreen() {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Brush.linearGradient(listOf(TriangleBrandPurple, TriangleBrandPurpleLight))),
+            .background(TriangleBrandPurple),
         contentAlignment = Alignment.Center
     ) {
         SplashLogo(modifier = Modifier.size(360.dp))
@@ -417,6 +438,8 @@ fun AppNavHost(activity: MainActivity) {
             if (currentSession == null) {
                 LaunchedEffect(Unit) { navController.navigate(ROUTE_LOGIN) { popUpTo(0) } }
             } else {
+                val rankContext = androidx.compose.ui.platform.LocalContext.current
+                LaunchedEffect(currentSession.uid) { com.triangle.app.data.RankWatcher.check(rankContext.applicationContext, currentSession) }
                 DashboardScreen(
                     session = currentSession,
                     onOpenTasks = { switchTab(navController, ROUTE_TASKS_GRAPH) },
@@ -425,6 +448,9 @@ fun AppNavHost(activity: MainActivity) {
                     onOpenDm = { navController.navigate(ROUTE_DM_GRAPH) },
                     onOpenSettings = { navController.navigate(ROUTE_SETTINGS) },
                     onOpenLeaderboard = { navController.navigate(ROUTE_LEADERBOARD) },
+                    onOpenReviews = { navController.navigate(ROUTE_REVIEWS) },
+                    onOpenInbox = { navController.navigate(ROUTE_INBOX) },
+                    onOpenBacklog = { mode -> navController.navigate("backlog/${mode.name}") },
                     onOpenCircle = { navController.navigate(ROUTE_CIRCLE_GRAPH) },
                     onOpenArchive = { navController.navigate(ROUTE_ARCHIVED_ITEMS) }
                 )
@@ -476,8 +502,14 @@ fun AppNavHost(activity: MainActivity) {
                         switchTab(navController, ROUTE_TASKS_GRAPH)
                     },
                     onOpenTasks = { navController.navigate(ROUTE_TASKS_GRAPH) },
+                    onOpenReview = { taskId, recipientUid -> navController.navigate("reviewSubmit/$taskId/$recipientUid") },
+                    onOpenReviews = { navController.navigate(ROUTE_REVIEWS) },
+                    onOpenLeaderboard = { navController.navigate(ROUTE_LEADERBOARD) },
                     onOpenCircle = { navController.navigate(ROUTE_CIRCLE_GRAPH) },
-                    onComposeAnnouncement = { navController.navigate(ROUTE_COMPOSE_ANNOUNCEMENT) },
+                    onOpenInbox = { announcementId ->
+                        announcementId?.let { HighlightBus.post(HighlightKind.ANNOUNCEMENT, it) }
+                        navController.navigate(ROUTE_INBOX)
+                    },
                     onBack = { navController.popBackStack() }
                 )
             }
@@ -486,6 +518,22 @@ fun AppNavHost(activity: MainActivity) {
         // ── Announcements — composer, saved groups, and the read-only detail
         // (also the sender's own view, with Edit/Delete). Reached from the
         // Notifications tab's + button / Sent list / a tapped announcement push.
+        composable(ROUTE_POLL_DETAILS, arguments = listOf(navArgument("pollId") { type = NavType.StringType })) { backStackEntry ->
+            val currentSession = session ?: return@composable
+            val pollId = backStackEntry.arguments?.getString("pollId") ?: return@composable
+            PollDetailsScreen(pollId = pollId, myUid = currentSession.uid, onBack = { navController.popBackStack() })
+        }
+        composable(ROUTE_POLL_COMPOSE) {
+            val currentSession = session ?: return@composable
+            val pollViewModel: PollComposeViewModel = viewModel(
+                factory = viewModelFactory { initializer { PollComposeViewModel(currentSession) } }
+            )
+            PollComposeScreen(
+                viewModel = pollViewModel,
+                onSent = { navController.popBackStack() },
+                onBack = { navController.popBackStack() }
+            )
+        }
         composable(ROUTE_COMPOSE_ANNOUNCEMENT) {
             val currentSession = session ?: return@composable
             val announcementViewModel: AnnouncementViewModel = viewModel(
@@ -512,12 +560,26 @@ fun AppNavHost(activity: MainActivity) {
                 onOpenChangePassword = { navController.navigate(ROUTE_CHANGE_PASSWORD) },
                 onOpenBackupRestore = { navController.navigate(ROUTE_BACKUP_RESTORE) },
                 onOpenArchivedItems = { navController.navigate(ROUTE_ARCHIVED_ITEMS) },
+                onOpenHabitSorting = { navController.navigate(ROUTE_HABIT_SORTING) },
+                onOpenCategories = { navController.navigate(ROUTE_CATEGORIES) },
                 onSignedOut = {
                     session = null
                     navController.navigate(ROUTE_LOGIN) { popUpTo(0) }
                 },
                 onBack = { navController.popBackStack() }
             )
+        }
+        composable(ROUTE_CATEGORIES) {
+            val currentSession = session ?: return@composable
+            CategoriesScreen(session = currentSession, onBack = { navController.popBackStack() })
+        }
+        composable(ROUTE_HABIT_SORTING) {
+            val currentSession = session
+            if (currentSession == null) {
+                LaunchedEffect(Unit) { navController.navigate(ROUTE_LOGIN) { popUpTo(0) } }
+            } else {
+                HabitSortingScreen(session = currentSession, onBack = { navController.popBackStack() })
+            }
         }
         composable(ROUTE_CHANGE_PASSWORD) {
             ChangePasswordScreen(
@@ -552,6 +614,65 @@ fun AppNavHost(activity: MainActivity) {
 
         // ── Leaderboard (Milestone 6) — one-shot global ranking fetch, no
         // realtime subscription (matches source's own plain fetch()).
+        composable("backlog/{mode}", arguments = listOf(navArgument("mode") { type = NavType.StringType })) { backStackEntry ->
+            val currentSession = session ?: return@composable
+            BacklogScreen(
+                session = currentSession,
+                mode = runCatching { TasksListMode.valueOf(backStackEntry.arguments?.getString("mode") ?: "") }.getOrDefault(TasksListMode.ALL),
+                onOpenTask = { taskId ->
+                    HighlightBus.post(HighlightKind.TASK, taskId, null)
+                    switchTab(navController, ROUTE_TASKS_GRAPH)
+                },
+                onBack = { navController.popBackStack() }
+            )
+        }
+        composable(ROUTE_INBOX) {
+            val currentSession = session
+            if (currentSession == null) {
+                LaunchedEffect(Unit) { navController.navigate(ROUTE_LOGIN) { popUpTo(0) } }
+            } else {
+                val inboxViewModel: NotificationsViewModel = viewModel(
+                    key = "inbox",
+                    factory = viewModelFactory { initializer { NotificationsViewModel(currentSession) } }
+                )
+                InboxScreen(
+                    viewModel = inboxViewModel,
+                    myUid = currentSession.uid,
+                    onCompose = { navController.navigate(ROUTE_COMPOSE_ANNOUNCEMENT) },
+                    onComposePoll = { navController.navigate(ROUTE_POLL_COMPOSE) },
+                    onOpenPollDetails = { id -> navController.navigate("pollDetails/$id") },
+                    onBack = { navController.popBackStack() }
+                )
+            }
+        }
+        composable(ROUTE_REVIEWS) {
+            val currentSession = session
+            if (currentSession == null) {
+                LaunchedEffect(Unit) { navController.navigate(ROUTE_LOGIN) { popUpTo(0) } }
+            } else {
+                ReviewsScreen(
+                    session = currentSession,
+                    onBack = { navController.popBackStack() }
+                )
+            }
+        }
+        composable(
+            "reviewSubmit/{taskId}/{recipientUid}",
+            arguments = listOf(
+                navArgument("taskId") { type = NavType.StringType },
+                navArgument("recipientUid") { type = NavType.StringType }
+            )
+        ) { backStackEntry ->
+            val currentSession = session ?: return@composable
+            val taskId = backStackEntry.arguments?.getString("taskId") ?: return@composable
+            val recipientUid = backStackEntry.arguments?.getString("recipientUid") ?: return@composable
+            ReviewSubmitScreen(
+                session = currentSession,
+                taskId = taskId,
+                recipientUid = recipientUid,
+                onDone = { navController.popBackStack() }
+            )
+        }
         composable(ROUTE_LEADERBOARD) {
             val currentSession = session
             if (currentSession == null) {
@@ -560,6 +681,8 @@ fun AppNavHost(activity: MainActivity) {
                 val leaderboardViewModel: LeaderboardViewModel = viewModel(
                     factory = viewModelFactory { initializer { LeaderboardViewModel(currentSession) } }
                 )
+                val lbContext = androidx.compose.ui.platform.LocalContext.current
+                LaunchedEffect(currentSession.uid) { com.triangle.app.data.RankWatcher.check(lbContext.applicationContext, currentSession, force = true) }
                 LeaderboardScreen(
                     viewModel = leaderboardViewModel,
                     onBack = { navController.popBackStack() },

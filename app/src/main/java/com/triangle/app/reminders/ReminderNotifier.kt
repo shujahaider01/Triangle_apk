@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import androidx.core.app.NotificationCompat
+import androidx.core.graphics.drawable.toBitmap
 import com.triangle.app.MainActivity
 import com.triangle.app.R
 
@@ -25,7 +26,7 @@ object ReminderNotifier {
     const val EXTRA_KIND = "reminder_kind"
     const val EXTRA_ITEM_ID = "reminder_item_id"
 
-    fun show(context: Context, kind: String, itemId: String, title: String, body: String) {
+    fun show(context: Context, kind: String, itemId: String, orgId: String, title: String, body: String) {
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -53,9 +54,24 @@ object ReminderNotifier {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        val completeIntent = Intent(context, ReminderActionReceiver::class.java).apply {
+            action = "com.triangle.app.REMINDER_COMPLETE:$kind:$itemId"
+            putExtra(ReminderScheduler.EXTRA_KIND, kind)
+            putExtra(ReminderScheduler.EXTRA_ITEM_ID, itemId)
+            putExtra(ReminderScheduler.EXTRA_ORG_ID, orgId)
+        }
+        val completePending = PendingIntent.getBroadcast(
+            context,
+            "complete:$kind:$itemId".hashCode(),
+            completeIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
-            .setColor(context.getColor(R.color.notification_color))
+            .addAction(0, "Mark completed", completePending)
+            .setSmallIcon(R.drawable.ic_stat_triangle)
+            .setColor(context.getColor(R.color.notification_purple))
+            .setLargeIcon(androidx.core.content.ContextCompat.getDrawable(context, R.drawable.ic_notification_large)?.toBitmap())
             .setContentTitle(title)
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))

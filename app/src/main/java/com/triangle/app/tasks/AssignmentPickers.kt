@@ -49,7 +49,7 @@ import com.triangle.app.ui.theme.TriangleBrandPurple
 fun AssignSummaryRow(members: List<CircleMember>, selectedUids: Set<String>, onClick: () -> Unit) {
     val selected = members.filter { it.uid in selectedUids }
     Column {
-        Text("Assign to", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        FormCardTitle("Assign To")
         Spacer(Modifier.height(8.dp))
         Row(
             Modifier
@@ -99,7 +99,7 @@ fun AssignSummaryRow(members: List<CircleMember>, selectedUids: Set<String>, onC
 @Composable
 fun PriorityPicker(selected: String, onSelect: (String) -> Unit) {
     Column {
-        Text("Priority", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        FormCardTitle("Priority")
         Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             PriorityXp.LABELS.keys.forEach { key ->
@@ -121,7 +121,7 @@ fun PriorityPicker(selected: String, onSelect: (String) -> Unit) {
         }
         Spacer(Modifier.height(6.dp))
         Text(
-            "Awards ${PriorityXp.xpFor(selected)} XP on completion",
+            "${PriorityXp.xpFor(selected)} Points",
             fontSize = 12.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

@@ -33,7 +33,10 @@ data class DashboardUiState(
     val weeklyXP: Int = 0,
     val totalTasksAll: Int = 0,
     val tasksCompleted: Int = 0,
-    val unreadNotifCount: Int = 0
+    val unreadNotifCount: Int = 0,
+    val unreadDmCount: Int = 0,
+    /** Unread announcement + poll notifications — the red badge on the Home "Inbox" tile. */
+    val unreadInboxCount: Int = 0
 )
 
 /**
@@ -57,6 +60,7 @@ class DashboardViewModel(private val session: SessionStore.Session) : ViewModel(
         load()
         observeTasksAndHabits()
         observeUnreadNotifications()
+        observeUnreadMessages()
     }
 
     // Bell-icon badge (see FeatureFlag.NOTIFICATION_BADGE_ENABLED) — same
@@ -67,6 +71,18 @@ class DashboardViewModel(private val session: SessionStore.Session) : ViewModel(
         NotificationRepository.notificationsFlow(session.orgId, session.uid)
             .map { list -> list.count { !it.read } }
             .onEach { count -> _uiState.value = _uiState.value.copy(unreadNotifCount = count) }
+            .launchIn(viewModelScope)
+        NotificationRepository.notificationsFlow(session.orgId, session.uid)
+            .map { list -> list.count { !it.read && (it.type == "announcement" || it.type == "poll") } }
+            .onEach { count -> _uiState.value = _uiState.value.copy(unreadInboxCount = count) }
+            .launchIn(viewModelScope)
+    }
+
+    // Red badge on the chat icon: total unread messages across all DM threads.
+    private fun observeUnreadMessages() {
+        com.triangle.app.data.DmRepository.userThreadsFlow(session.uid)
+            .map { threads -> threads.sumOf { it.unreadCount } }
+            .onEach { count -> _uiState.value = _uiState.value.copy(unreadDmCount = count) }
             .launchIn(viewModelScope)
     }
 

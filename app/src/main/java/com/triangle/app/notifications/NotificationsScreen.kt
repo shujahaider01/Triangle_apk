@@ -25,7 +25,9 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
@@ -51,6 +53,7 @@ import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PersonAddAlt1
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -88,6 +91,7 @@ private data class NotifMeta(val icon: ImageVector, val label: String, val color
 private val NotifTypes = mapOf(
     "task_assigned" to NotifMeta(Icons.AutoMirrored.Filled.Assignment, "Task Assigned", Color(0xFF3B82F6)),
     "task_completed" to NotifMeta(Icons.Filled.CheckCircle, "Task Completed", Color(0xFF22C55E)),
+    "review_received" to NotifMeta(Icons.Filled.Star, "New Review", Color(0xFFF5A623)),
     "habit_assigned" to NotifMeta(Icons.Filled.Repeat, "Habit Assigned", Color(0xFFF59E0B)),
     "habit_completed" to NotifMeta(Icons.Filled.Repeat, "Habit Completed", Color(0xFFF59E0B)),
     "post_created" to NotifMeta(Icons.AutoMirrored.Filled.Article, "New Post", Color(0xFF6366F1)),
@@ -95,7 +99,9 @@ private val NotifTypes = mapOf(
     "task_shared" to NotifMeta(Icons.Filled.Share, "Task Shared", Color(0xFFE85D26)),
     "connection_request" to NotifMeta(Icons.Filled.PersonAddAlt1, "Connection Request", Color(0xFF8B5CF6)),
     "connection_accepted" to NotifMeta(Icons.Filled.Groups, "Connection Accepted", Color(0xFF22C55E)),
-    "announcement" to NotifMeta(Icons.Filled.Campaign, "Announcement", Color(0xFFE85D26))
+    "announcement" to NotifMeta(Icons.Filled.Campaign, "Announcement", Color(0xFFE85D26)),
+    "poll" to NotifMeta(Icons.Filled.BarChart, "Poll", Color(0xFF6C5CE7)),
+    "rank_change" to NotifMeta(Icons.Filled.EmojiEvents, "Leaderboard", Color(0xFFF5B942))
 )
 private val DefaultNotifMeta = NotifMeta(Icons.Filled.Notifications, "Notification", Color(0xFF6C5CE7))
 private fun notifMeta(type: String) = NotifTypes[type] ?: DefaultNotifMeta
@@ -118,22 +124,18 @@ fun NotificationsScreen(
     onOpenTaskDetail: (taskId: String?, body: String) -> Unit,
     onOpenHabitDetail: (habitId: String?, body: String) -> Unit,
     onOpenTasks: () -> Unit,
+    onOpenReview: (taskId: String, recipientUid: String) -> Unit,
+    onOpenReviews: () -> Unit,
+    onOpenLeaderboard: () -> Unit,
     onOpenCircle: () -> Unit,
-    onComposeAnnouncement: () -> Unit,
+    onOpenInbox: (announcementId: String?) -> Unit,
     onBack: () -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val state by viewModel.uiState.collectAsState()
-    val announcements by viewModel.announcements.collectAsState()
-    val sentIds by viewModel.sentIds.collectAsState()
-    val announcementsEnabled = FeatureFlags.isEnabled(FeatureFlag.ANNOUNCEMENTS_ENABLED)
     val palette = notificationsPalette()
     val unreadCount = state.notifications.count { !it.read }
 
-    var editing by remember { mutableStateOf<Announcement?>(null) }
-    var deleting by remember { mutableStateOf<Announcement?>(null) }
-    var lightboxUrl by remember { mutableStateOf<String?>(null) }
-    var highlightedAnnouncementId by remember { mutableStateOf<String?>(null) }
     val listState = rememberLazyListState()
 
     fun handleTap(n: AppNotification) {
@@ -145,56 +147,28 @@ fun NotificationsScreen(
             // for notifications pushed before itemId existed.
             "task_assigned" -> onOpenTaskDetail(n.itemId, n.body)
             "habit_assigned" -> onOpenHabitDetail(n.itemId, n.body)
-            "task_shared", "task_completed", "habit_completed" -> onOpenTasks()
+            "task_completed" -> {
+                val taskId = n.itemId
+                val who = n.otherUserId
+                if (taskId != null && who != null) onOpenReview(taskId, who) else onOpenTasks()
+            }
+            "review_received" -> onOpenReviews()
+            "rank_change" -> onOpenLeaderboard()
+            "task_shared", "habit_completed" -> onOpenTasks()
             // connection_request no longer navigates away — it gets inline
             // Accept/Decline buttons right on the row (see NotifRow) instead
             // of hiding them behind a tap into ConnectionRequestsScreen.
+            "announcement", "poll" -> onOpenInbox(n.itemId)
             "connection_accepted" -> onOpenCircle()
             else -> Unit
         }
     }
 
-    // One chronological feed: ordinary notification rows, plus announcements rendered inline as
-    // full cards — received ones (from their notification row) and ones I sent (from my Sent
-    // index), so the sender sees the same card. An announcement still loading, or recalled, is hidden.
-    val feed = remember(state.notifications, announcements, sentIds, announcementsEnabled) {
-        buildList<FeedItem> {
-            state.notifications.forEach { n ->
-                if (n.type == "announcement") {
-                    val a = n.itemId?.let { announcements[it] }
-                    if (a != null && announcementsEnabled) add(FeedItem.Card(a, mine = false, notification = n))
-                } else add(FeedItem.Note(n))
-            }
-            if (announcementsEnabled) sentIds.forEach { id -> announcements[id]?.let { add(FeedItem.Card(it, mine = true, notification = null)) } }
-        }
-    }
+    // One chronological list of notification rows. An announcement is just a one-line
+    // "New Inbox: “Title”" row here — its full card lives in the Inbox (see InboxScreen).
+    val feed = remember(state.notifications) { state.notifications.map { FeedItem.Note(it) } }
     val rows = remember(feed) { groupByDate(feed).flatMap { (label, items) -> listOf<FeedRow>(FeedRow.Header(label)) + items.map { FeedRow.Entry(it) } } }
-
-    // Announcement cards load a moment after the plain rows, and a LazyColumn keeps whatever row
-    // was first on screen anchored — so cards landing above it would sit off-screen. Until the
-    // user scrolls, keep the list pinned to the top.
-    var userScrolled by remember { mutableStateOf(false) }
-    LaunchedEffect(listState) { snapshotFlow { listState.isScrollInProgress }.collect { if (it) userScrolled = true } }
-    LaunchedEffect(rows) { if (!userScrolled && rows.isNotEmpty()) listState.scrollToItem(0) }
-
-    // A tapped announcement push asks to scroll to and highlight its card (see HighlightBus).
-    val highlightReq by HighlightBus.request.collectAsState()
-    val announcementReq = highlightReq?.takeIf { it.kind == HighlightKind.ANNOUNCEMENT }
-    LaunchedEffect(announcementReq, rows) {
-        val req = announcementReq ?: return@LaunchedEffect
-        val index = rows.indexOfFirst { it is FeedRow.Entry && it.item is FeedItem.Card && it.item.a.id == req.itemId }
-        if (index < 0) return@LaunchedEffect
-        listState.animateScrollToItem(index)
-        highlightedAnnouncementId = req.itemId
-        delay(3000)
-        highlightedAnnouncementId = null
-        HighlightBus.clear(req)
-    }
-    LaunchedEffect(announcementReq) {
-        val req = announcementReq ?: return@LaunchedEffect
-        delay(8000)
-        HighlightBus.clear(req) // never appeared (recalled) — stop waiting
-    }
+    val paging = com.triangle.app.ui.components.rememberLazyPaging(listState, rows.size, 15)
 
     Scaffold(
         topBar = {
@@ -207,13 +181,6 @@ fun NotificationsScreen(
                     }
                 }
             )
-        },
-        floatingActionButton = {
-            if (announcementsEnabled) {
-                FloatingActionButton(onClick = onComposeAnnouncement) {
-                    Icon(Icons.Default.Add, contentDescription = "New announcement")
-                }
-            }
         }
     ) { padding ->
         if (rows.isEmpty()) {
@@ -230,7 +197,7 @@ fun NotificationsScreen(
                 state = listState,
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                items(rows, key = { row -> when (row) { is FeedRow.Header -> "h-${row.label}"; is FeedRow.Entry -> row.item.key } }) { row ->
+                items(rows.take(paging.visible), key = { row -> when (row) { is FeedRow.Header -> "h-${row.label}"; is FeedRow.Entry -> row.item.key } }) { row ->
                     when (row) {
                         is FeedRow.Header -> Text(row.label, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = palette.text3, modifier = Modifier.padding(top = 10.dp, bottom = 6.dp))
                         is FeedRow.Entry -> when (val item = row.item) {
@@ -252,71 +219,11 @@ fun NotificationsScreen(
                                     }
                                 )
                             }
-                            is FeedItem.Card -> AnnouncementCard(
-                                announcement = item.a,
-                                isMine = item.mine,
-                                unread = item.notification?.read == false,
-                                highlighted = highlightedAnnouncementId == item.a.id,
-                                onClick = { item.notification?.let { if (!it.read) viewModel.markRead(it.id) } },
-                                onOpenAttachment = { a ->
-                                    // Photos open in the in-app viewer; videos and PDFs open in Drive's viewer/player.
-                                    if (a.isImage) lightboxUrl = a.url
-                                    else runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(a.viewUrl))) }
-                                        .onFailure { Toast.makeText(context, "No app available to open this file", Toast.LENGTH_SHORT).show() }
-                                },
-                                onEdit = { editing = item.a },
-                                onDelete = { deleting = item.a }
-                            )
                         }
                     }
                 }
+                if (paging.hasMore) item(key = "load-more") { com.triangle.app.ui.components.LoadMoreFooter() }
                 item { Spacer(Modifier.height(72.dp)) } // clear the + button
-            }
-        }
-    }
-
-    editing?.let { a ->
-        var title by remember(a.id) { mutableStateOf(a.title) }
-        var body by remember(a.id) { mutableStateOf(a.body) }
-        var color by remember(a.id) { mutableStateOf(a.color) }
-        AlertDialog(
-            onDismissRequest = { editing = null },
-            title = { Text("Edit announcement") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OutlinedTextField(title, { title = it.take(AnnouncementRepository.TITLE_MAX) }, label = { Text("Title") }, singleLine = true)
-                    OutlinedTextField(body, { body = it.take(AnnouncementRepository.BODY_MAX) }, label = { Text("Announcement") }, minLines = 4, maxLines = 8)
-                    TitleColorPicker(selected = color, onSelect = { color = it })
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    enabled = title.isNotBlank() && body.isNotBlank(),
-                    onClick = { viewModel.editAnnouncement(a.id, title, body, color); editing = null }
-                ) { Text("Save") }
-            },
-            dismissButton = { TextButton(onClick = { editing = null }) { Text("Cancel") } }
-        )
-    }
-
-    deleting?.let { a ->
-        ConfirmDialog(
-            title = "Delete this announcement?",
-            body = "It will be removed for you and every recipient. This can't be undone.",
-            confirmLabel = "Delete",
-            destructive = true,
-            onConfirm = { viewModel.deleteAnnouncement(a.id); deleting = null },
-            onDismiss = { deleting = null }
-        )
-    }
-
-    lightboxUrl?.let { url ->
-        Dialog(onDismissRequest = { lightboxUrl = null }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-            Box(Modifier.fillMaxSize().background(Color.Black)) {
-                AsyncImage(model = url, contentDescription = "Photo", contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
-                IconButton(onClick = { lightboxUrl = null }, modifier = Modifier.padding(12.dp)) {
-                    Icon(Icons.Filled.Close, contentDescription = "Close", tint = Color.White)
-                }
             }
         }
     }
@@ -329,11 +236,6 @@ private sealed interface FeedItem {
     data class Note(val n: AppNotification) : FeedItem {
         override val key get() = "n-${n.id}"
         override val createdAt get() = n.createdAt
-    }
-
-    data class Card(val a: Announcement, val mine: Boolean, val notification: AppNotification?) : FeedItem {
-        override val key get() = "a-${a.id}-${if (mine) "sent" else "received"}"
-        override val createdAt get() = a.createdAt
     }
 }
 
@@ -366,17 +268,22 @@ private fun NotifRow(
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text(n.title.ifBlank { meta.label }, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = palette.text, maxLines = 1)
-                if (n.body.isNotBlank()) {
+                val isAnnouncement = n.type == "announcement" || n.type == "poll"
+                val shownTitle = if (isAnnouncement) inboxRowTitle(n.title, n.type) else n.title.ifBlank { meta.label }
+                Text(shownTitle, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = palette.text, maxLines = 1)
+                if (n.body.isNotBlank() && n.type != "announcement" && n.type != "poll") {
                     Spacer(Modifier.height(2.dp))
                     Text(n.body, fontSize = 12.sp, color = palette.text2, maxLines = 2)
                 }
-                Spacer(Modifier.height(2.dp))
-                Text(formatTime(n.createdAt), fontSize = 10.5.sp, color = palette.text3)
             }
-            if (!n.read) {
-                Spacer(Modifier.width(6.dp))
-                Box(Modifier.size(8.dp).clip(CircleShape).background(meta.color))
+            // Time sits at the right, vertically centred on the row, instead of taking its own line.
+            Spacer(Modifier.width(8.dp))
+            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.Center) {
+                Text(formatTime(n.createdAt), fontSize = 11.sp, color = palette.text3, maxLines = 1)
+                if (!n.read) {
+                    Spacer(Modifier.height(5.dp))
+                    Box(Modifier.size(8.dp).clip(CircleShape).background(meta.color))
+                }
             }
         }
         // Shown directly on the row instead of behind a tap-through to a
@@ -414,3 +321,9 @@ private fun formatTime(timestamp: Long): String {
     if (timestamp <= 0L) return ""
     return SimpleDateFormat("h:mm a", Locale.US).format(Date(timestamp))
 }
+
+/** One-line label for an announcement notification; handles rows saved with or without the "New Inbox" prefix. */
+private fun inboxRowTitle(raw: String, type: String): String =
+    if (raw.startsWith("New Inbox") || raw.startsWith("New Poll")) raw
+    else if (type == "poll") "New Poll: “${raw.trim()}”"
+    else "New Inbox: “${raw.trim()}”"

@@ -104,11 +104,6 @@ fun AssignMembersScreen(
                 navigationIcon = {
                     IconButton(onClick = onClose) { Icon(Icons.Default.Close, contentDescription = "Close") }
                 },
-                actions = {
-                    TextButton(onClick = { onDone(selected) }, enabled = selected.isNotEmpty()) {
-                        Text("Next")
-                    }
-                }
             )
         }
     ) { padding ->

@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <color name="notification_purple">#6D5EF5</color>
     <color name="notification_color">#E85D26</color>
     <!-- Same value as notification_color / Theme.kt's TriangleOrange — the
          splash screen's solid background needs a @color resource (the

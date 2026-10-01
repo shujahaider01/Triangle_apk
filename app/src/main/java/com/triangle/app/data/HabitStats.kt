@@ -34,7 +34,8 @@ object HabitStats {
 
         val dateSet = dates.toSet()
         var current = 0
-        var check = LocalDate.now()
+        val today = LocalDate.now()
+        var check = today
         var iterations = 0
         while (iterations < 730) {
             if (!habit.isInRange(check.toString()) || !habit.frequency.isScheduledFor(jsDow(check), check.dayOfMonth)) {
@@ -46,6 +47,11 @@ object HabitStats {
                 current++
                 check = check.minusDays(1)
                 iterations++
+            } else if (check == today) {
+                // Today isn't done yet — that must not zero the streak. Keep counting from yesterday;
+                // today only adds to it once it's ticked.
+                check = check.minusDays(1)
+                iterations++
             } else {
                 break
             }
@@ -55,7 +61,10 @@ object HabitStats {
 
     /** Completion % since startDate, scheduled-days-only denominator, capped at 365 days scanned. */
     fun calcScore(habit: Habit, completions: Map<String, HabitCompletionEntry>): Int {
-        val start = runCatching { LocalDate.parse(habit.startDate) }.getOrNull() ?: return 0
+        val declaredStart = runCatching { LocalDate.parse(habit.startDate) }.getOrNull() ?: return 0
+        // A backdated completion can predate startDate; count from the earliest one so it is not ignored.
+        val earliestDone = completions.keys.mapNotNull { runCatching { LocalDate.parse(it) }.getOrNull() }.minOrNull()
+        val start = if (habit.allowBackdate && earliestDone != null && earliestDone.isBefore(declaredStart)) earliestDone else declaredStart
         val today = LocalDate.now()
         var day = if (ChronoUnit.DAYS.between(start, today) > 365) today.minusDays(365) else start
         var scheduled = 0
@@ -68,6 +77,25 @@ object HabitStats {
             day = day.plusDays(1)
         }
         return if (scheduled == 0) 0 else Math.round(done * 100.0 / scheduled).toInt()
+    }
+
+    /** The date a run of [milestone] consecutive completed days was first reached, or null if never. */
+    fun unlockDate(completions: Map<String, HabitCompletionEntry>, milestone: Int): LocalDate? {
+        val dates = completions.keys.mapNotNull { runCatching { LocalDate.parse(it) }.getOrNull() }.sorted()
+        if (dates.isEmpty()) return null
+        var runStart = dates[0]
+        var len = 1
+        if (len >= milestone) return runStart.plusDays((milestone - 1).toLong())
+        for (i in 1 until dates.size) {
+            if (ChronoUnit.DAYS.between(dates[i - 1], dates[i]) == 1L) {
+                len++
+            } else {
+                runStart = dates[i]
+                len = 1
+            }
+            if (len >= milestone) return runStart.plusDays((milestone - 1).toLong())
+        }
+        return null
     }
 
     data class StreakRun(val start: LocalDate, val end: LocalDate, val len: Int)
