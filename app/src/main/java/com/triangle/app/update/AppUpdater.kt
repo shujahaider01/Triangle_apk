@@ -5,6 +5,8 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import android.util.Log
+import kotlinx.coroutines.delay
 import androidx.core.content.FileProvider
 import com.google.firebase.database.FirebaseDatabase
 import com.triangle.app.BuildConfig
@@ -18,7 +20,7 @@ import java.net.URL
 /**
  * Self-hosted update info, read from `appUpdate` in this environment's own
  * Realtime Database (so dev/qa/prod each announce their own builds):
- * { latestVersionCode, versionName, apkUrl, changelog, forceUpdate, minVersionCode }
+ * { latestVersionCode, versionName, apkUrl, changelog }. Updates are always mandatory.
  */
 data class UpdateInfo(
     val versionCode: Long,
@@ -30,22 +32,30 @@ data class UpdateInfo(
 
 object AppUpdater {
 
-    suspend fun checkForUpdate(): UpdateInfo? = runCatching {
-        val snap = FirebaseDatabase.getInstance().getReference("appUpdate").get().await()
-        val latest = snap.child("latestVersionCode").getValue(Long::class.java) ?: return@runCatching null
-        val url = snap.child("apkUrl").getValue(String::class.java)?.takeIf { it.startsWith("https://") }
-            ?: return@runCatching null
-        val minCode = snap.child("minVersionCode").getValue(Long::class.java) ?: 0L
-        if (latest <= BuildConfig.VERSION_CODE) return@runCatching null
-        UpdateInfo(
-            versionCode = latest,
-            versionName = snap.child("versionName").getValue(String::class.java) ?: latest.toString(),
-            apkUrl = url,
-            changelog = snap.child("changelog").getValue(String::class.java).orEmpty(),
-            force = (snap.child("forceUpdate").getValue(Boolean::class.java) ?: false) ||
-                BuildConfig.VERSION_CODE < minCode,
-        )
-    }.getOrNull()
+    // The first read right after launch can fail with "Client is offline" before
+    // the database connection is established, so retry a few times.
+    suspend fun checkForUpdate(): UpdateInfo? {
+        repeat(4) { attempt ->
+            runCatching {
+                val snap = FirebaseDatabase.getInstance().getReference("appUpdate").get().await()
+                val latest = (snap.child("latestVersionCode").value as? Number)?.toLong()
+                val url = (snap.child("apkUrl").value as? String)?.takeIf { it.startsWith("https://") }
+                Log.i(TAG, "attempt=$attempt exists=${snap.exists()} latest=$latest installed=${BuildConfig.VERSION_CODE} url=$url")
+                if (latest == null || url == null || latest <= BuildConfig.VERSION_CODE) return null
+                return UpdateInfo(
+                    versionCode = latest,
+                    versionName = snap.child("versionName").value?.toString() ?: latest.toString(),
+                    apkUrl = url,
+                    changelog = (snap.child("changelog").value as? String).orEmpty(),
+                    force = true,
+                )
+            }.onFailure { Log.w(TAG, "attempt=$attempt failed: ${it.message}") }
+            delay(3_000)
+        }
+        return null
+    }
+
+    private const val TAG = "AppUpdater"
 
     /** Downloads the APK into cache, reporting 0f..1f (or -1f if size unknown). */
     suspend fun download(context: Context, info: UpdateInfo, onProgress: (Float) -> Unit): File =
