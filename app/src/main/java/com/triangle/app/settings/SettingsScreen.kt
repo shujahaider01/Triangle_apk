@@ -116,6 +116,20 @@ fun SettingsScreen(
     val iconTint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f)
     val appIcon = remember { androidx.core.content.ContextCompat.getDrawable(context, com.triangle.app.R.mipmap.ic_launcher)?.toBitmap(192, 192)?.asImageBitmap() }
     var showThemeDialog by remember { mutableStateOf(false) }
+    // Hidden shortcut: tap the app icon / name / version three times (within 2 seconds) to open the latest APK release on GitHub.
+    var versionTaps by remember { mutableStateOf(0) }
+    var lastVersionTap by remember { mutableStateOf(0L) }
+    val releaseTap = {
+        val now = System.currentTimeMillis()
+        versionTaps = if (now - lastVersionTap <= 2000L) versionTaps + 1 else 1
+        lastVersionTap = now
+        if (versionTaps >= 3) {
+            versionTaps = 0
+            runCatching {
+                context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://github.com/shujahaider01/Triangle_apk/releases/latest")))
+            }
+        }
+    }
 
     Column(
         Modifier
@@ -130,7 +144,7 @@ fun SettingsScreen(
 
         // App icon, name and version.
         Row(
-            Modifier.fillMaxWidth().padding(top = 22.dp, bottom = 34.dp),
+            Modifier.fillMaxWidth().clickable(indication = null, interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }) { releaseTap() }.padding(top = 22.dp, bottom = 34.dp),
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically
         ) {

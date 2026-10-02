@@ -65,6 +65,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.mutableIntStateOf
 import com.triangle.app.ui.components.ConfettiOverlay
@@ -163,15 +164,24 @@ fun TasksHabitsScreen(
         return
     }
     val pagerState = rememberPagerState(initialPage = resolvedPane) { 2 }
-    LaunchedEffect(pagerState) {
-        snapshotFlow { pagerState.settledPage }.collect { viewModel.setActivePane(it) }
-    }
-    // The bottom bar's Habits / Tasks tabs write the wanted pane to the same preference the pager saves to;
-    // follow it so tapping a tab switches the pager (and swiping keeps the preference in step).
+    // The bottom bar's Habits / Tasks tabs write the wanted pane to the preference; the pager follows it
+    // instantly (no animation, so an interrupted animation can never leave the two pages half-visible).
     val paneContext = androidx.compose.ui.platform.LocalContext.current.applicationContext
     val wantedPane by com.triangle.app.data.TasksHabitsUiPrefs.lastActivePaneFlow(paneContext, viewModel.sessionInfo.uid).collectAsState(initial = resolvedPane)
     LaunchedEffect(wantedPane) {
-        if (wantedPane != pagerState.currentPage && !pagerState.isScrollInProgress) pagerState.animateScrollToPage(wantedPane)
+        if (wantedPane != pagerState.currentPage) pagerState.scrollToPage(wantedPane)
+    }
+    // Swiping is off, so the page only changes through the preference above or a highlight jump. The very first
+    // value is the page restored from the last visit, which can be stale — writing it back would undo the tab
+    // that was just tapped, so it is skipped.
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.settledPage }.drop(1).collect { viewModel.setActivePane(it) }
+    }
+    // With swiping off nothing snaps a pager that was left between pages, so settle it explicitly.
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.isScrollInProgress to pagerState.currentPageOffsetFraction }.collect { (scrolling, offset) ->
+            if (!scrolling && offset != 0f) pagerState.scrollToPage(pagerState.currentPage)
+        }
     }
 
     // A notification tap asked to reveal + highlight one task/habit (see HighlightBus).

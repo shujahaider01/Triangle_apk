@@ -76,8 +76,8 @@ fun QuickAddScreen(
             Section("Create with others", muted)
             QuickCard(card) {
                 QuickRow(
-                    QuickItem(Icons.Outlined.Groups, "Shared task") { onCreateTask(false) },
-                    QuickItem(Icons.Outlined.Groups, "Shared habit") { onCreateHabit(false) },
+                    QuickItem(Icons.Outlined.Groups, "T.Shared") { onCreateTask(false) },
+                    QuickItem(Icons.Outlined.Groups, "H.Shared") { onCreateHabit(false) },
                     chip, text
                 )
             }
