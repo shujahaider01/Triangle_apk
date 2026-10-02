@@ -14,10 +14,19 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.outlined.Repeat
+import androidx.compose.material.icons.outlined.AccountCircle
+import androidx.compose.material.icons.rounded.AccountCircle
+import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.outlined.TaskAlt
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -29,68 +38,88 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.triangle.app.ui.theme.TriangleBrandPurple
-import com.triangle.app.ui.theme.TriangleCardBgDark
-import com.triangle.app.ui.theme.TriangleText2Dark
-import com.triangle.app.ui.theme.TriangleText2Light
 import com.triangle.app.ui.theme.triangleDarkTheme
 
 /** Which top-level section's bottom-nav tab is currently active. */
-enum class BottomNavTab { HOME, TASKS, PROFILE }
+enum class BottomNavTab { HOME, HABITS, TASKS, PROFILE }
+
+/** What each bottom-nav control does — provided by AppNavHost so every screen's bar behaves the same. */
+class BottomNavActions(
+    val onHome: () -> Unit,
+    val onHabits: () -> Unit,
+    val onTasks: () -> Unit,
+    val onProfile: () -> Unit,
+    val onQuickAdd: () -> Unit
+)
+
+val LocalBottomNavActions = staticCompositionLocalOf<BottomNavActions?> { null }
 
 /**
- * The "Home / Tasks / Profile" flat bar (.duo-nav/.duo-nav-btn/
- * .duo-nav-pill in style.css — brand purple active tint, not the global
- * accent) — originally Dashboard-only; extracted here so Tasks/Habits and
- * Profile show the same bar too, letting the user jump directly between
- * these three top-level sections instead of always routing back through
- * Dashboard first. The active tab's own callback is never invoked (its item
- * is simply not clickable), matching how Dashboard always treated its own
- * "Home" item before this was shared.
+ * Floating bottom bar: a rounded pill with Home, Habits, Tasks and Profile (the active one sits in a tinted
+ * capsule), and a separate round "+" button beside it that opens Quick add. The active tab isn't clickable.
  */
 @Composable
-fun AppBottomNav(
-    active: BottomNavTab,
-    onHome: () -> Unit,
-    onTasks: () -> Unit,
-    onProfile: () -> Unit,
-    tasksLabel: String = "Tasks"
-) {
+fun AppBottomNav(active: BottomNavTab) {
+    val actions = LocalBottomNavActions.current ?: return
     val dark = triangleDarkTheme()
-    val barBg = if (dark) TriangleCardBgDark else Color.White
-    val text2 = if (dark) TriangleText2Dark else TriangleText2Light
+    val pill = if (dark) Color(0xFF2A2A30) else Color.White
+    val idle = if (dark) Color(0xFFB8B8C2) else Color(0xFF6B6B76)
 
-    data class NavItem(val tab: BottomNavTab, val label: String, val icon: ImageVector, val onClick: () -> Unit)
+    data class NavItem(val tab: BottomNavTab, val label: String, val icon: ImageVector, val activeIcon: ImageVector, val onClick: () -> Unit)
 
     val items = listOf(
-        NavItem(BottomNavTab.HOME, "Home", Icons.Outlined.Home, onHome),
-        // TasksHabitsScreen passes "Tasks" or "Habits" here depending on
-        // which pane of its two-pane pager is currently showing, so this
-        // tab's label follows you as you swipe instead of always reading
-        // "Tasks" even while looking at Habits.
-        NavItem(BottomNavTab.TASKS, tasksLabel, Icons.Outlined.GridView, onTasks),
-        NavItem(BottomNavTab.PROFILE, "Profile", Icons.Outlined.Person, onProfile)
+        NavItem(BottomNavTab.HOME, "Home", Icons.Outlined.Home, Icons.Rounded.Home, actions.onHome),
+        NavItem(BottomNavTab.HABITS, "Habits", Icons.Outlined.Repeat, Icons.Outlined.Repeat, actions.onHabits),
+        NavItem(BottomNavTab.TASKS, "Tasks", Icons.Outlined.TaskAlt, Icons.Outlined.TaskAlt, actions.onTasks),
+        NavItem(BottomNavTab.PROFILE, "Profile", Icons.Outlined.AccountCircle, Icons.Rounded.AccountCircle, actions.onProfile)
     )
 
     Column(Modifier.fillMaxWidth()) {
-        // Non-prod builds: the environment strip sits directly above the tabs (nothing in prod).
+        // Non-prod builds: the environment strip sits directly above the bar (nothing in prod).
         EnvironmentStrip()
         Row(
-            modifier = Modifier.fillMaxWidth().background(barBg).padding(vertical = 8.dp),
-            horizontalArrangement = Arrangement.SpaceAround
+            Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 10.dp).navigationBarsPadding(),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            items.forEach { item ->
-                val isActive = item.tab == active
-                val color = if (isActive) TriangleBrandPurple else text2
-                Column(
-                    modifier = Modifier
-                        .clickable(enabled = !isActive, onClick = item.onClick)
-                        .padding(horizontal = 12.dp, vertical = 4.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Icon(item.icon, contentDescription = item.label, tint = color, modifier = Modifier.size(26.dp))
-                    Spacer(Modifier.height(4.dp))
-                    Text(item.label, fontSize = 11.sp, fontWeight = if (isActive) FontWeight.Bold else FontWeight.SemiBold, color = color)
+            Row(
+                Modifier
+                    .weight(1f)
+                    .height(64.dp)
+                    .shadow(8.dp, RoundedCornerShape(32.dp), ambientColor = Color(0x33000000), spotColor = Color(0x33000000))
+                    .clip(RoundedCornerShape(32.dp))
+                    .background(pill)
+                    .padding(horizontal = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                items.forEach { item ->
+                    val isActive = item.tab == active
+                    val color = if (isActive) TriangleBrandPurple else idle
+                    Column(
+                        Modifier
+                            .weight(1f)
+                            .height(52.dp)
+                            .clip(RoundedCornerShape(26.dp))
+                            .background(if (isActive) TriangleBrandPurple.copy(alpha = if (dark) 0.28f else 0.14f) else Color.Transparent)
+                            .clickable(enabled = !isActive, onClick = item.onClick),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Icon(if (isActive) item.activeIcon else item.icon, contentDescription = item.label, tint = color, modifier = Modifier.size(28.dp))
+                    }
                 }
+            }
+            Spacer(Modifier.width(12.dp))
+            Box(
+                Modifier
+                    .size(64.dp)
+                    .shadow(8.dp, RoundedCornerShape(24.dp), ambientColor = Color(0x44000000), spotColor = Color(0x44000000))
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(TriangleBrandPurple.copy(alpha = 0.82f))
+                    .clickable(onClick = actions.onQuickAdd),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Filled.Add, contentDescription = "Quick add", tint = Color.White, modifier = Modifier.size(30.dp))
             }
         }
     }

@@ -166,6 +166,13 @@ fun TasksHabitsScreen(
     LaunchedEffect(pagerState) {
         snapshotFlow { pagerState.settledPage }.collect { viewModel.setActivePane(it) }
     }
+    // The bottom bar's Habits / Tasks tabs write the wanted pane to the same preference the pager saves to;
+    // follow it so tapping a tab switches the pager (and swiping keeps the preference in step).
+    val paneContext = androidx.compose.ui.platform.LocalContext.current.applicationContext
+    val wantedPane by com.triangle.app.data.TasksHabitsUiPrefs.lastActivePaneFlow(paneContext, viewModel.sessionInfo.uid).collectAsState(initial = resolvedPane)
+    LaunchedEffect(wantedPane) {
+        if (wantedPane != pagerState.currentPage && !pagerState.isScrollInProgress) pagerState.animateScrollToPage(wantedPane)
+    }
 
     // A notification tap asked to reveal + highlight one task/habit (see HighlightBus).
     // Phase 1 puts the list in a state where the item is visible (its date/mode, no
@@ -311,22 +318,8 @@ fun TasksHabitsScreen(
 
     Box(Modifier.fillMaxSize()) {
     Scaffold(
-        floatingActionButton = {
-            FloatingActionButton(onClick = {
-                val isSolo = state.itemMode == ItemMode.SOLO
-                if (pagerState.currentPage == 0) onCreateTask(isSolo) else onCreateHabit(isSolo)
-            }) {
-                Icon(Icons.Default.Add, contentDescription = "Create")
-            }
-        },
         bottomBar = {
-            AppBottomNav(
-                active = BottomNavTab.TASKS,
-                tasksLabel = if (pagerState.currentPage == 0) "Tasks" else "Habits",
-                onHome = onOpenHome,
-                onTasks = {},
-                onProfile = onOpenProfile
-            )
+            AppBottomNav(active = if (pagerState.currentPage == 0) BottomNavTab.TASKS else BottomNavTab.HABITS)
         }
     ) { padding ->
         // Same orange->pink->purple->blue page gradient as Dashboard (the
@@ -399,7 +392,7 @@ fun TasksHabitsScreen(
                 // etc.) had to inflate mid-gesture, which is what made the
                 // Tasks<->Habits swipe itself feel less smooth than scrolling
                 // within either page.
-                HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize(), beyondViewportPageCount = 1, reverseLayout = true) /* Habits sits on the left, Tasks on the right */ { page ->
+                HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize(), beyondViewportPageCount = 1, reverseLayout = true, userScrollEnabled = false) /* Habits sits on the left, Tasks on the right */ { page ->
                     if (page == 0) {
                         TasksPane(
                             state = state,

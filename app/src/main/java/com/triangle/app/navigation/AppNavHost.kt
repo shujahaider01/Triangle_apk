@@ -45,6 +45,10 @@ import com.triangle.app.ui.theme.TriangleBrandPurple
 import com.triangle.app.ui.theme.TriangleOrange
 
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import androidx.navigation.NavHostController
+import com.triangle.app.data.TasksHabitsUiPrefs
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
@@ -118,6 +122,7 @@ private const val ROUTE_BACKUP_RESTORE = "backupRestore"
 private const val ROUTE_ARCHIVED_ITEMS = "archivedItems"
 private const val ROUTE_COMPOSE_ANNOUNCEMENT = "composeAnnouncement"
 private const val ROUTE_LEADERBOARD = "leaderboard"
+private const val ROUTE_QUICK_ADD = "quickAdd"
 private const val ROUTE_REVIEWS = "reviews"
 private const val ROUTE_INBOX = "inbox"
 private const val ROUTE_POLL_COMPOSE = "composePoll"
@@ -324,6 +329,32 @@ private fun SplashLogo(modifier: Modifier = Modifier) {
 fun AppNavHost(activity: MainActivity) {
     val context = LocalContext.current
     val navController = rememberNavController()
+    val navScope = androidx.compose.runtime.rememberCoroutineScope()
+    // The floating bottom bar's controls — the same on every screen that shows it.
+    val bottomNavActions = remember(navController) {
+        fun openPane(pane: Int) {
+            navScope.launch {
+                val uid = SessionStore.sessionFlow(context.applicationContext).first()?.uid
+                if (uid != null) TasksHabitsUiPrefs.setLastActivePane(context.applicationContext, uid, pane)
+                switchTab(navController, ROUTE_TASKS_GRAPH)
+            }
+        }
+        BottomNavActions(
+            onHome = { goHome(navController) },
+            onHabits = { openPane(1) },
+            onTasks = { openPane(0) },
+            onProfile = { switchTab(navController, ROUTE_PROFILE) },
+            onQuickAdd = { navController.navigate(ROUTE_QUICK_ADD) { launchSingleTop = true } }
+        )
+    }
+    androidx.compose.runtime.CompositionLocalProvider(LocalBottomNavActions provides bottomNavActions) {
+        AppNavHostContent(activity, navController)
+    }
+}
+
+@Composable
+private fun AppNavHostContent(activity: MainActivity, navController: NavHostController) {
+    val context = LocalContext.current
 
     var session by remember { mutableStateOf<SessionStore.Session?>(null) }
     var sessionLoaded by remember { mutableStateOf(false) }
@@ -522,6 +553,15 @@ fun AppNavHost(activity: MainActivity) {
             val currentSession = session ?: return@composable
             val pollId = backStackEntry.arguments?.getString("pollId") ?: return@composable
             PollDetailsScreen(pollId = pollId, myUid = currentSession.uid, onBack = { navController.popBackStack() })
+        }
+        composable(ROUTE_QUICK_ADD) {
+            QuickAddScreen(
+                onBack = { navController.popBackStack() },
+                onCreateTask = { solo -> navController.navigate("createTask/$solo") { popUpTo(ROUTE_QUICK_ADD) { inclusive = true } } },
+                onCreateHabit = { solo -> navController.navigate("createHabit/$solo") { popUpTo(ROUTE_QUICK_ADD) { inclusive = true } } },
+                onAnnouncement = { navController.navigate(ROUTE_COMPOSE_ANNOUNCEMENT) { popUpTo(ROUTE_QUICK_ADD) { inclusive = true } } },
+                onPoll = { navController.navigate(ROUTE_POLL_COMPOSE) { popUpTo(ROUTE_QUICK_ADD) { inclusive = true } } }
+            )
         }
         composable(ROUTE_POLL_COMPOSE) {
             val currentSession = session ?: return@composable

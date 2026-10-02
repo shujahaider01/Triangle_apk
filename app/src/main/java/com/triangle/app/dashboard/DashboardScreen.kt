@@ -136,13 +136,7 @@ fun DashboardScreen(
     Box(Modifier.fillMaxSize()) {
     Scaffold(
         bottomBar = {
-            AppBottomNav(
-                active = BottomNavTab.HOME,
-                tasksLabel = if (tasksNavPane == 0) "Tasks" else "Habits",
-                onHome = {},
-                onTasks = onOpenTasks,
-                onProfile = onOpenProfile
-            )
+            AppBottomNav(active = BottomNavTab.HOME)
         }
     ) { padding ->
         val bg = if (dark) Modifier.background(PageBgDark) else Modifier.background(Brush.linearGradient(PageGradientLight))

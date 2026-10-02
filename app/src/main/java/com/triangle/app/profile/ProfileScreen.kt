@@ -96,13 +96,7 @@ fun ProfileScreen(
     ProfileScreenContent(
         viewModel = viewModel,
         bottomBar = {
-            AppBottomNav(
-                active = BottomNavTab.PROFILE,
-                tasksLabel = if (tasksNavPane == 0) "Tasks" else "Habits",
-                onHome = onOpenHome,
-                onTasks = onOpenTasks,
-                onProfile = {}
-            )
+            AppBottomNav(active = BottomNavTab.PROFILE)
         }
     )
 }
