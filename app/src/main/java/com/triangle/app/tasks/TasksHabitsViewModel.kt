@@ -237,6 +237,7 @@ class TasksHabitsViewModel(private val session: SessionStore.Session, private va
             val done = completions.contains("${task.id}-${session.uid}")
             task.id to when {
                 task.isTemplate && task.repeat != null && !task.paused && task.reminderTime != null -> "repeat|${task.repeat.toMap()}|${task.reminderTime}"
+                ReminderScheduler.isInheritedInstanceReminder(task, tasks) -> null
                 !done && task.dueDate != null && task.reminderTime != null -> "${task.dueDate}|${task.reminderTime}"
                 else -> null
             }
@@ -807,8 +808,19 @@ class TasksHabitsViewModel(private val session: SessionStore.Session, private va
         return done * 100.0 / total
     }
 
+    /**
+     * Repeating tasks only get a real copy for today (see RepeatTaskEngine.process), so a day the user opens in
+     * the calendar — e.g. next Thursday for a "every Thursday" task — would show nothing. Create the copies for the
+     * days being looked at; the live task listener then shows them.
+     */
+    private fun ensureRepeatCopiesFor(dates: List<LocalDate>) {
+        if (allTasks.value.none { it.isTemplate && it.repeat != null && !it.paused }) return
+        viewModelScope.launch { runCatching { TaskRepository.materializeRepeatingTasksFor(session.orgId, dates) } }
+    }
+
     fun selectDate(date: LocalDate) {
         _uiState.value = _uiState.value.copy(selectedDate = date, dateRange = null)
+        ensureRepeatCopiesFor(listOf(date))
         recompute(allTasks.value, allCompletions.value, allHabits.value, allHabitCompletions.value)
     }
 
@@ -819,6 +831,7 @@ class TasksHabitsViewModel(private val session: SessionStore.Session, private va
         if (end == null || end == start) { selectDate(start); return }
         val span = if (end.isBefore(start)) DateSpan(end, start) else DateSpan(start, end)
         _uiState.value = _uiState.value.copy(selectedDate = span.start, dateRange = span)
+        ensureRepeatCopiesFor(generateSequence(span.start) { it.plusDays(1) }.takeWhile { !it.isAfter(span.end) }.take(62).toList())
         recompute(allTasks.value, allCompletions.value, allHabits.value, allHabitCompletions.value)
     }
 

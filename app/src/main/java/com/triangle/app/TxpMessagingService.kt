@@ -61,6 +61,16 @@ class TxpMessagingService : FirebaseMessagingService() {
 
         showNotification(title, body, type, notifId, isAdmin)
 
+        // A newly assigned task/habit: arm its reminder now, without waiting for the Tasks screen to be opened.
+        if (type == "task_assigned" || type == "habit_assigned") {
+            val appContext = applicationContext
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                val s = SessionStore.sessionFlow(appContext).first() ?: return@launch
+                runCatching { com.triangle.app.data.TaskRepository.materializeRepeatingTasks(s.orgId) }
+                runCatching { com.triangle.app.reminders.ReminderScheduler.rescheduleAll(appContext, s.orgId) }
+            }
+        }
+
         // A push is a chance to re-check the leaderboard position in the background (throttled inside RankWatcher).
         if (type != "rank_change") {
             val appContext = applicationContext

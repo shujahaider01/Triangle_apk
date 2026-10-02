@@ -167,4 +167,10 @@ object TaskRepository {
             orgData(orgId).child("tasks").setValue(result.tasks.map { it.toMap() }).await()
         }
     }
+
+    /** Creates the repeating-task copies that fall on [dates] (see RepeatTaskEngine.materializeForDates). */
+    suspend fun materializeRepeatingTasksFor(orgId: String, dates: List<java.time.LocalDate>) {
+        val result = RepeatTaskEngine.materializeForDates(readTasks(orgId), dates)
+        if (result.changed) orgData(orgId).child("tasks").setValue(result.tasks.map { it.toMap() }).await()
+    }
 }

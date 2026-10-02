@@ -163,9 +163,17 @@ object ReminderScheduler {
         pi.cancel()
     }
 
+    /** A repeating task's day copy that just carries the template's reminder — the template's own alarm already covers it, so it must not be armed a second time. */
+    fun isInheritedInstanceReminder(task: Task, all: List<Task>): Boolean {
+        val templateId = task.templateId ?: return false
+        val template = all.firstOrNull { it.id == templateId } ?: return false
+        return template.repeat != null && template.reminderTime != null && template.reminderTime == task.reminderTime
+    }
+
     /** Re-arms every reminder for an org from scratch — used after a device reboot, since AlarmManager alarms don't survive one. */
     suspend fun rescheduleAll(context: Context, orgId: String) {
-        TaskRepository.getAllTasks(orgId).forEach { scheduleForTask(context, orgId, it) }
+        val tasks = TaskRepository.getAllTasks(orgId)
+        tasks.forEach { if (!isInheritedInstanceReminder(it, tasks)) scheduleForTask(context, orgId, it) }
         HabitRepository.getAllHabits(orgId).forEach { scheduleForHabit(context, orgId, it) }
     }
 }

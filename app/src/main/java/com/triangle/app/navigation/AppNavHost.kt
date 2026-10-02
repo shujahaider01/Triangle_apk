@@ -471,6 +471,12 @@ private fun AppNavHostContent(activity: MainActivity, navController: NavHostCont
             } else {
                 val rankContext = androidx.compose.ui.platform.LocalContext.current
                 LaunchedEffect(currentSession.uid) { com.triangle.app.data.RankWatcher.check(rankContext.applicationContext, currentSession) }
+                // Arm reminders for everything in my org as soon as the app opens (items assigned to me by others used to
+                // get theirs only once the Tasks screen was opened).
+                LaunchedEffect(currentSession.orgId) {
+                    runCatching { com.triangle.app.data.TaskRepository.materializeRepeatingTasks(currentSession.orgId) }
+                    runCatching { com.triangle.app.reminders.ReminderScheduler.rescheduleAll(rankContext.applicationContext, currentSession.orgId) }
+                }
                 DashboardScreen(
                     session = currentSession,
                     onOpenTasks = { switchTab(navController, ROUTE_TASKS_GRAPH) },
