@@ -189,25 +189,34 @@ object AssignmentRepository {
 
         val taskGroupsDeferred = entries.filter { it.type == "task" }.groupBy { it.itemId }.map { (itemId, group) ->
             async {
-                val memberResults = group.map { entry ->
+                // What each recipient currently has: their tasks, which ones they've completed, and who they are.
+                class Fetched(val entry: AssignedByMeIndexEntry, val tasks: List<Task>, val completions: Set<String>, val record: UserRepository.UserRecord?)
+                val fetched = group.map { entry ->
                     async {
                         val tasksDeferred = async { TaskRepository.tasksFlow(entry.recipientOrgId).first() }
                         val completionsDeferred = async { TaskRepository.completionsFlow(entry.recipientOrgId).first() }
-                        val tasks = tasksDeferred.await()
-                        val completions = completionsDeferred.await()
-                        val representative = tasks.firstOrNull { it.id == itemId }
                         val record = recordDeferreds.getValue(entry.recipientUid).await()
-                        val member = AssignedTaskMember(
-                            entry.recipientUid,
-                            record?.name ?: "Unknown",
-                            done = completions.contains("$itemId-${entry.recipientUid}"),
-                            photoUrl = record?.photoUrl
-                        )
-                        representative to member
+                        Fetched(entry, tasksDeferred.await(), completionsDeferred.await(), record)
                     }
                 }.awaitAll()
-                val representative = memberResults.firstNotNullOfOrNull { it.first }
-                representative?.let { AssignedTaskGroup(itemId, it, memberResults.map { m -> m.second }) }
+                fun memberFor(f: Fetched, taskId: String) = AssignedTaskMember(
+                    f.entry.recipientUid,
+                    f.record?.name ?: "Unknown",
+                    done = f.completions.contains("$taskId-${f.entry.recipientUid}"),
+                    photoUrl = f.record?.photoUrl
+                )
+                val representative = fetched.firstNotNullOfOrNull { f -> f.tasks.firstOrNull { it.id == itemId } }
+                if (representative != null && representative.isTemplate && representative.repeat != null) {
+                    // A repeating assignment is a hidden template; what the assigner sees is each day's generated
+                    // copy (same id on every recipient), one row per day, with each recipient's done state.
+                    val instanceIds = fetched.flatMap { f -> f.tasks.filter { it.templateId == itemId }.map { it.id } }.distinct()
+                    instanceIds.mapNotNull { id ->
+                        val instance = fetched.firstNotNullOfOrNull { f -> f.tasks.firstOrNull { it.id == id } } ?: return@mapNotNull null
+                        AssignedTaskGroup(id, instance, fetched.map { memberFor(it, id) })
+                    }
+                } else {
+                    representative?.let { listOf(AssignedTaskGroup(itemId, it, fetched.map { f -> memberFor(f, itemId) })) } ?: emptyList()
+                }
             }
         }
 
@@ -235,7 +244,7 @@ object AssignmentRepository {
             }
         }
 
-        AssignedGroups(taskGroupsDeferred.awaitAll().filterNotNull(), habitGroupsDeferred.awaitAll().filterNotNull())
+        AssignedGroups(taskGroupsDeferred.awaitAll().flatten(), habitGroupsDeferred.awaitAll().filterNotNull())
     }
 
     fun assignedByMeFlow(assignerUid: String) =
@@ -253,7 +262,8 @@ object AssignmentRepository {
      * assignedTo, notes, and each checklist item's done flag (matched by id).
      * Per-recipient failures are swallowed, same as the delete path.
      */
-    suspend fun updateTaskAssignment(assignerUid: String, edited: Task) = coroutineScope {
+    suspend fun updateTaskAssignment(assignerUid: String, editedInstance: Task) = coroutineScope {
+        val edited = editedInstance.copy(id = seriesId(editedInstance.id))
         val entries = readAssignedByMe(assignerUid).filter { it.itemId == edited.id && it.type == "task" }
         entries.map { entry ->
             async {
@@ -267,7 +277,7 @@ object AssignmentRepository {
                             description = edited.description,
                             priority = edited.priority,
                             points = edited.points,
-                            dueDate = edited.dueDate,
+                            dueDate = if (theirs.isTemplate) theirs.dueDate else edited.dueDate,
                             reminderTime = edited.reminderTime,
                             iconColor = edited.iconColor,
                             iconSvg = edited.iconSvg,
@@ -310,7 +320,11 @@ object AssignmentRepository {
         }
     }
 
-    suspend fun deleteTaskAssignment(assignerUid: String, itemId: String) = coroutineScope {
+    /** A generated day of a repeating assignment ("ri-<templateId>-yyyy-MM-dd") belongs to the template the assigner actually created. */
+    private fun seriesId(id: String): String = if (id.startsWith("ri-") && id.length > 14) id.removePrefix("ri-").dropLast(11) else id
+
+    suspend fun deleteTaskAssignment(assignerUid: String, taskId: String) = coroutineScope {
+        val itemId = seriesId(taskId)
         val entries = readAssignedByMe(assignerUid).filter { it.itemId == itemId && it.type == "task" }
         entries.map { entry -> async { runCatching { TaskRepository.deleteTask(entry.recipientOrgId, itemId) } } }.awaitAll()
         social().child("assignedByMe/$assignerUid/$itemId").removeValue().await()

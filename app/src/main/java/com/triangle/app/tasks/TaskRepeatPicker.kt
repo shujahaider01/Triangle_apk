@@ -181,6 +181,17 @@ private fun RepeatDetails(rule: RepeatRule, onChange: (RepeatRule?) -> Unit) {
                         }
                     }
                 }
+                Spacer(Modifier.height(8.dp))
+                // The days are spread evenly (you can't pick them), so show exactly which ones this will be.
+                val n = rule.count.coerceAtLeast(1)
+                val falls = if (rule.unit == "month") {
+                    val len = 30
+                    "Falls on day " + (0 until n.coerceAtMost(len)).map { (it * len) / n.coerceAtMost(len) + 1 }.joinToString(", ") + " of each month"
+                } else {
+                    val names = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+                    "Falls on " + (0 until n.coerceAtMost(7)).map { names[(it * 7) / n.coerceAtMost(7)] }.joinToString(", ") + " each week"
+                }
+                Text(falls, fontSize = 12.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
